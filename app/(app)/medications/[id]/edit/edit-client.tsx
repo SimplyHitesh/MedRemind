@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Separator } from '@/components/ui/separator'
+import { MedicationAutocomplete } from '@/components/medication-autocomplete'
 import { toast } from 'sonner'
 
 const FORM_OPTIONS: MedicationForm[] = [
@@ -178,10 +179,11 @@ export default function EditMedicationClient({ medication, originalSchedules }: 
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="name">Medication Name *</Label>
-              <Input
+              <MedicationAutocomplete
                 id="name"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={setName}
+                placeholder="e.g. Ibuprofen, Paracetamol, Amoxicillin"
                 disabled={submitting}
               />
               {formErrors.name && <p className="text-xs text-red-600">{formErrors.name}</p>}

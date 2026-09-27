@@ -130,7 +130,86 @@ Deno.serve(async (req: Request) => {
       )
     }
 
-    const results = (fdaData as { results?: unknown[] }).results ?? []
+    let results = (fdaData as { results?: unknown[] }).results ?? []
+
+    // If zero results, try resolving international synonym (e.g. Paracetamol -> Acetaminophen) or spelling typos
+    if (results.length === 0) {
+      const SYNONYMS: Record<string, string> = {
+        paracetamol: 'acetaminophen',
+        paracetemol: 'acetaminophen',
+        salbutamol: 'albuterol',
+        frusemide: 'furosemide',
+        lignocaine: 'lidocaine',
+        glyceryl_trinitrate: 'nitroglycerin',
+      }
+
+      let synonym = SYNONYMS[queryKey]
+
+      if (!synonym) {
+        try {
+          const rxRes = await fetch(`https://rxnav.nlm.nih.gov/REST/rxcui.json?name=${encodeURIComponent(queryKey)}`, {
+            signal: AbortSignal.timeout(2000),
+          })
+          if (rxRes.ok) {
+            const rxData = await rxRes.json()
+            const rxcui = rxData?.idGroup?.rxnormId?.[0]
+            if (rxcui) {
+              const propRes = await fetch(`https://rxnav.nlm.nih.gov/REST/rxcui/${rxcui}/properties.json`, {
+                signal: AbortSignal.timeout(2000),
+              })
+              if (propRes.ok) {
+                const propData = await propRes.json()
+                const officialName = propData?.properties?.name
+                if (officialName && officialName.toLowerCase() !== queryKey) {
+                  synonym = officialName.toLowerCase()
+                }
+              }
+            }
+          }
+        } catch {
+          // ignore timeout
+        }
+      }
+
+      // Check spelling suggestions if still no synonym
+      if (!synonym) {
+        try {
+          const spellRes = await fetch(`https://rxnav.nlm.nih.gov/REST/spellingsuggestions.json?name=${encodeURIComponent(queryKey)}`, {
+            signal: AbortSignal.timeout(2000),
+          })
+          if (spellRes.ok) {
+            const spellData = await spellRes.json()
+            const rawSug = spellData?.suggestionGroup?.suggestionList?.suggestion
+            const suggested = Array.isArray(rawSug) ? rawSug[0] : rawSug
+            if (suggested && suggested.toLowerCase() !== queryKey) {
+              synonym = SYNONYMS[suggested.toLowerCase()] || suggested.toLowerCase()
+            }
+          }
+        } catch {
+          // ignore timeout
+        }
+      }
+
+      if (synonym) {
+        try {
+          const synEncoded = encodeURIComponent(synonym)
+          const synUrl = `${openFdaBase}?search=openfda.brand_name:"${synEncoded}"+openfda.generic_name:"${synEncoded}"&limit=1`
+          const synResp = await fetch(synUrl, {
+            headers: { 'Accept': 'application/json' },
+            signal: AbortSignal.timeout(5000),
+          })
+          if (synResp.ok) {
+            const synData = await synResp.json()
+            if ((synData?.results?.length ?? 0) > 0) {
+              results = synData.results
+              fdaData = synData
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
 
     let explanation: Record<string, unknown>
     let source: string
