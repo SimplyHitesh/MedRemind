@@ -227,10 +227,31 @@ export default function SettingsPage() {
   async function sendTestNotification() {
     setTestingPush(true)
     try {
+      // Trigger instant local notification via Service Worker registration
+      if ('serviceWorker' in navigator && Notification.permission === 'granted') {
+        const reg = await navigator.serviceWorker.ready
+        if (reg && reg.showNotification) {
+          reg.showNotification('💊 Test Medication Reminder', {
+            body: 'This is a test notification from MedRemind! Action buttons work directly in your notification center.',
+            icon: '/favicon.ico',
+            badge: '/favicon.ico',
+            actions: [
+              { action: 'taken', title: '✅ Tablet Taken' },
+              { action: 'snooze', title: '⏰ Snooze 10m' },
+              { action: 'noted', title: 'Noted' },
+            ],
+            requireInteraction: true,
+            tag: 'test-med-reminder',
+          } as any)
+        }
+      }
+
       const res = await fetch('/api/notifications/test', { method: 'POST' })
       const data = await res.json()
       if (res.ok && data.success) {
-        toast.success('Test notification sent! Look for the alert in your system/browser notification bar.')
+        toast.success('Test notification sent! If you do not see a popup, check Windows Action Center (Win + N) or disable "Do Not Disturb".', {
+          duration: 6000,
+        })
       } else {
         toast.error(data.error || 'Failed to send test notification')
       }

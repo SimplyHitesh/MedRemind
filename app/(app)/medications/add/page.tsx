@@ -139,8 +139,13 @@ export default function AddMedicationPage() {
       return
     }
 
+    // Auto-generate today's doses for the new medication
+    try {
+      await fetch('/api/medications/ensure-today', { method: 'POST' })
+    } catch {}
+
     toast.success(`${name} added successfully!`)
-    router.push('/medications')
+    router.push('/dashboard')
     router.refresh()
   }
 

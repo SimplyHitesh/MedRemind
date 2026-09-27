@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useOptimistic, useTransition, useState } from 'react'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { LogStatus, Medication } from '@/lib/types'
 import { Badge } from '@/components/ui/badge'
@@ -551,6 +552,83 @@ export default function DashboardClient({
           })}
         </div>
       )}
+
+      {/* Active Prescriptions / Medications Overview */}
+      <div className="mt-10 border-t pt-8">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">💊 My Active Medications ({medications.length})</h2>
+            <p className="text-xs text-gray-500">Overview of all prescribed medications and inventory status</p>
+          </div>
+          <Link href="/medications/add">
+            <Button size="sm" variant="outline" className="text-xs border-blue-200 text-blue-700 hover:bg-blue-50">
+              + Add Medication
+            </Button>
+          </Link>
+        </div>
+
+        {medications.length === 0 ? (
+          <div className="bg-gray-50 border border-dashed border-gray-300 rounded-lg p-6 text-center">
+            <p className="text-sm text-gray-500">No medications added yet.</p>
+            <Link href="/medications/add" className="mt-2 inline-block">
+              <Button size="sm" className="mt-2 text-xs">
+                Add your first medication
+              </Button>
+            </Link>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {medications.map((m) => (
+              <Card key={m.id} className="hover:shadow-sm transition-shadow">
+                <CardContent className="p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className="w-3.5 h-3.5 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: m.color_tag ?? '#3b82f6' }}
+                    />
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm text-gray-900 truncate">{m.name}</p>
+                      <p className="text-xs text-gray-500">
+                        {m.dose_amount} {m.dose_unit} · {m.form}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                        {m.tablets_remaining !== null && (
+                          <span className="text-[11px] bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded font-medium">
+                            📦 {m.tablets_remaining} in stock
+                          </span>
+                        )}
+                        {m.duration_end_date && (
+                          <span className="text-[11px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-medium">
+                            🗓️ Until {m.duration_end_date}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1.5 flex-shrink-0 ml-3">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs h-7 px-2.5 border-gray-300 text-gray-700 hover:bg-gray-50"
+                      onClick={() => {
+                        setRefillMed(m)
+                        setRefillAmount('30')
+                      }}
+                    >
+                      + Refill
+                    </Button>
+                    <Link href={`/medications/${m.id}`}>
+                      <Button size="sm" variant="ghost" className="text-xs h-7 px-2.5 w-full text-blue-600 hover:text-blue-700">
+                        Details →
+                      </Button>
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Refill Dialog */}
       <Dialog open={!!refillMed} onOpenChange={(open) => !open && setRefillMed(null)}>

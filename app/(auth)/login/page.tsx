@@ -21,8 +21,12 @@ export default function LoginPage() {
     setError(null)
     setLoading(true)
 
+    const cleanEmail = email.trim()
     const supabase = createClient()
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    const { error } = await supabase.auth.signInWithPassword({
+      email: cleanEmail,
+      password,
+    })
 
     if (error) {
       setError(error.message)
@@ -30,8 +34,8 @@ export default function LoginPage() {
       return
     }
 
-    router.push('/dashboard')
-    router.refresh()
+    // Use window.location for full page reload on mobile devices to ensure cookie sync
+    window.location.href = '/dashboard'
   }
 
   return (
