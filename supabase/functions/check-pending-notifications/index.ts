@@ -74,24 +74,22 @@ Deno.serve(async (req: Request) => {
       // Parse time_of_day: "HH:MM:SS"
       const [hours, minutes] = (schedule.time_of_day as string).split(':').map(Number)
 
-      // Build a UTC date for the scheduled time in the user's timezone today
-      // We check a ±30s window around now for the current minute
-      const userNow = new Date(now.toLocaleString('en-US', { timeZone: tz }))
-      const scheduledLocal = new Date(userNow)
+      // Check if scheduled time matches current minute in user's timezone
+      const tzNow = new Date(now.toLocaleString('en-US', { timeZone: tz }))
+      if (tzNow.getHours() !== hours || tzNow.getMinutes() !== minutes) {
+        continue
+      }
+
+      // Convert local scheduled instant to UTC instant
+      const localOffset = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' })).getTime()
+        - tzNow.getTime()
+      const scheduledLocal = new Date(tzNow)
       scheduledLocal.setHours(hours, minutes, 0, 0)
-
-      // Convert to UTC
-      const localOffset = new Date(scheduledLocal.toLocaleString('en-US', { timeZone: 'UTC' })).getTime()
-        - new Date(scheduledLocal.toLocaleString('en-US', { timeZone: tz })).getTime()
       const scheduledUtc = new Date(scheduledLocal.getTime() + localOffset)
-
-      // Check if this falls within the current 60-second cron window
-      const diffMs = Math.abs(scheduledUtc.getTime() - now.getTime())
-      if (diffMs > 30000) continue // Not within ±30s window
 
       // Check day of week for specific_days schedules
       if (schedule.recurrence === 'specific_days') {
-        const userDow = userNow.getDay() // 0=Sunday..6=Saturday
+        const userDow = tzNow.getDay() // 0=Sunday..6=Saturday
         const allowedDays = schedule.days_of_week as number[] ?? []
         if (!allowedDays.includes(userDow)) continue
       }
