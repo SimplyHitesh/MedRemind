@@ -35,6 +35,10 @@ export interface Medication {
   instructions: string | null
   color_tag: string
   is_active: boolean
+  tablets_remaining: number | null
+  tablets_per_dose: number
+  refill_alert_days: number
+  duration_end_date: string | null // 'YYYY-MM-DD'
   created_at: string
   updated_at: string
 }
@@ -61,6 +65,7 @@ export interface MedicationLog {
   status: LogStatus
   taken_at: string | null
   notified_at: string | null
+  snoozed_until: string | null
   created_at: string
 }
 

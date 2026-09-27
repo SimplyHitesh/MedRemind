@@ -30,12 +30,76 @@ export default function MedicationsClient({ initialMedications }: MedicationsCli
   const [activeOnly, setActiveOnly] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [refillMed, setRefillMed] = useState<Medication | null>(null)
+  const [refillAmount, setRefillAmount] = useState('30')
+  const [refilling, setRefilling] = useState(false)
+  const [extendMed, setExtendMed] = useState<Medication | null>(null)
+  const [extendDate, setExtendDate] = useState('')
+  const [extending, setExtending] = useState(false)
 
   const filtered = medications.filter((m) => {
     const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesActive = !activeOnly || m.is_active
     return matchesSearch && matchesActive
   })
+
+  async function handleRefill() {
+    if (!refillMed || !refillAmount || Number(refillAmount) <= 0) return
+    setRefilling(true)
+    try {
+      const res = await fetch('/api/medications/refill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          medicationId: refillMed.id,
+          additionalTablets: Number(refillAmount),
+        }),
+      })
+      const data = await res.json()
+      if (res.ok && data.medication) {
+        setMedications((prev) =>
+          prev.map((m) => (m.id === data.medication.id ? { ...m, ...data.medication } : m))
+        )
+        toast.success(`Added ${refillAmount} ${refillMed.dose_unit} to ${refillMed.name}`)
+        setRefillMed(null)
+      } else {
+        toast.error(data.error || 'Failed to refill supply')
+      }
+    } catch {
+      toast.error('Failed to refill supply')
+    } finally {
+      setRefilling(false)
+    }
+  }
+
+  async function handleExtend() {
+    if (!extendMed) return
+    setExtending(true)
+    try {
+      const res = await fetch('/api/medications/extend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          medicationId: extendMed.id,
+          newEndDate: extendDate || null,
+        }),
+      })
+      const data = await res.json()
+      if (res.ok && data.medication) {
+        setMedications((prev) =>
+          prev.map((m) => (m.id === data.medication.id ? { ...m, ...data.medication } : m))
+        )
+        toast.success(`Updated treatment end date for ${extendMed.name}`)
+        setExtendMed(null)
+      } else {
+        toast.error(data.error || 'Failed to extend treatment')
+      }
+    } catch {
+      toast.error('Failed to extend treatment')
+    } finally {
+      setExtending(false)
+    }
+  }
 
   async function handleDelete() {
     if (!deleteId) return
@@ -137,12 +201,69 @@ export default function MedicationsClient({ initialMedications }: MedicationsCli
                 {med.instructions && (
                   <p className="text-xs text-gray-500 mb-3 line-clamp-2">{med.instructions}</p>
                 )}
-                <div className="flex gap-2 mt-3">
+                {/* Supply & Duration Badges */}
+                <div className="flex flex-wrap gap-1.5 my-2.5">
+                  {med.tablets_remaining !== null && (
+                    <Badge
+                      variant="outline"
+                      className={`text-xs ${
+                        med.tablets_remaining <= (med.tablets_per_dose || 1)
+                          ? 'bg-red-50 text-red-700 border-red-300 font-semibold'
+                          : med.tablets_remaining <= (med.tablets_per_dose || 1) * (med.refill_alert_days || 3)
+                          ? 'bg-yellow-50 text-yellow-800 border-yellow-300 font-semibold'
+                          : 'bg-gray-50 text-gray-700 border-gray-200'
+                      }`}
+                    >
+                      {med.tablets_remaining <= (med.tablets_per_dose || 1)
+                        ? `🚨 ${med.tablets_remaining} left (Refill Now!)`
+                        : med.tablets_remaining <= (med.tablets_per_dose || 1) * (med.refill_alert_days || 3)
+                        ? `⚠️ Low: ${med.tablets_remaining} left`
+                        : `📦 ${med.tablets_remaining} left`}
+                    </Badge>
+                  )}
+                  {med.duration_end_date ? (
+                    <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                      🗓️ Until {new Date(med.duration_end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-xs bg-gray-50 text-gray-500 border-gray-200">
+                      🗓️ Ongoing
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Quick actions for supply & duration */}
+                <div className="flex gap-1.5 mb-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs text-blue-600 bg-blue-50/50 hover:bg-blue-100 flex-1"
+                    onClick={() => {
+                      setRefillMed(med)
+                      setRefillAmount('30')
+                    }}
+                  >
+                    + Refill
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs text-indigo-600 bg-indigo-50/50 hover:bg-indigo-100 flex-1"
+                    onClick={() => {
+                      setExtendMed(med)
+                      setExtendDate(med.duration_end_date ?? '')
+                    }}
+                  >
+                    Extend
+                  </Button>
+                </div>
+
+                <div className="flex gap-2 mt-2">
                   <Link href={`/medications/${med.id}/edit`} className="flex-1">
-                    <Button variant="outline" size="sm" className="w-full">Edit</Button>
+                    <Button variant="outline" size="sm" className="w-full text-xs">Edit</Button>
                   </Link>
                   <Link href={`/medications/${med.id}/explain`} className="flex-1">
-                    <Button variant="outline" size="sm" className="w-full">Explain</Button>
+                    <Button variant="outline" size="sm" className="w-full text-xs">Explain</Button>
                   </Link>
                   <Button
                     variant="outline"
@@ -183,6 +304,126 @@ export default function MedicationsClient({ initialMedications }: MedicationsCli
             </Button>
             <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
               {deleting ? 'Deleting…' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Refill Dialog */}
+      <Dialog open={!!refillMed} onOpenChange={(open) => !open && setRefillMed(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>📦 Refill {refillMed?.name}</DialogTitle>
+            <DialogDescription>
+              Got new tablets? Enter how many tablets you purchased or received to update your supply.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="flex items-center justify-between text-sm text-gray-600 bg-gray-50 p-2.5 rounded-lg">
+              <span>Current supply on hand:</span>
+              <span className="font-semibold text-gray-900">
+                {refillMed?.tablets_remaining ?? 0} {refillMed?.dose_unit}
+              </span>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Add Tablets / Units</label>
+              <Input
+                type="number"
+                min="1"
+                step="1"
+                placeholder="e.g. 30"
+                value={refillAmount}
+                onChange={(e) => setRefillAmount(e.target.value)}
+                autoFocus
+              />
+              <div className="flex gap-2 pt-1">
+                {[10, 15, 30, 60, 90].map((preset) => (
+                  <Button
+                    key={preset}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs flex-1"
+                    onClick={() => setRefillAmount(String(preset))}
+                  >
+                    +{preset}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRefillMed(null)} disabled={refilling}>
+              Cancel
+            </Button>
+            <Button onClick={handleRefill} disabled={refilling || !refillAmount || Number(refillAmount) <= 0}>
+              {refilling ? 'Updating Supply…' : `Add +${refillAmount || 0} to Stock`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Extend Duration Dialog */}
+      <Dialog open={!!extendMed} onOpenChange={(open) => !open && setExtendMed(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>📅 Extend Prescription / Duration</DialogTitle>
+            <DialogDescription>
+              Did your doctor ask you to continue taking {extendMed?.name}? Update your treatment end date below.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Take Until Date</label>
+              <Input
+                type="date"
+                value={extendDate}
+                onChange={(e) => setExtendDate(e.target.value)}
+                min={new Date().toISOString().split('T')[0]}
+              />
+              <p className="text-xs text-gray-500">
+                {extendDate
+                  ? `Reminders will continue until ${new Date(extendDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                  : 'No end date (continuous / ongoing reminders)'}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-gray-500">Quick Extension</p>
+              <div className="flex gap-2 flex-wrap">
+                {[5, 7, 14, 30].map((days) => (
+                  <Button
+                    key={days}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => {
+                      const d = new Date()
+                      d.setDate(d.getDate() + days)
+                      setExtendDate(d.toISOString().split('T')[0])
+                    }}
+                  >
+                    +{days} Days
+                  </Button>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setExtendDate('')}
+                >
+                  Ongoing (No End Date)
+                </Button>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setExtendMed(null)} disabled={extending}>
+              Cancel
+            </Button>
+            <Button onClick={handleExtend} disabled={extending}>
+              {extending ? 'Saving…' : 'Save Duration'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -12,29 +12,39 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
 
-const TIMEZONES = [
-  'UTC',
-  'America/New_York',
-  'America/Chicago',
-  'America/Denver',
-  'America/Los_Angeles',
-  'America/Anchorage',
-  'America/Honolulu',
-  'Europe/London',
-  'Europe/Paris',
-  'Europe/Berlin',
-  'Europe/Moscow',
-  'Asia/Kolkata',
-  'Asia/Dubai',
-  'Asia/Singapore',
-  'Asia/Tokyo',
-  'Asia/Shanghai',
-  'Australia/Sydney',
-  'Pacific/Auckland',
-]
+function getAllTimezones(): string[] {
+  try {
+    if (typeof Intl !== 'undefined' && 'supportedValuesOf' in Intl) {
+      return Intl.supportedValuesOf('timeZone')
+    }
+  } catch {
+    // fallback
+  }
+  return [
+    'UTC',
+    'America/New_York',
+    'America/Chicago',
+    'America/Denver',
+    'America/Los_Angeles',
+    'America/Anchorage',
+    'America/Honolulu',
+    'Europe/London',
+    'Europe/Paris',
+    'Europe/Berlin',
+    'Europe/Moscow',
+    'Asia/Kolkata',
+    'Asia/Dubai',
+    'Asia/Singapore',
+    'Asia/Tokyo',
+    'Asia/Shanghai',
+    'Australia/Sydney',
+    'Pacific/Auckland',
+  ]
+}
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
@@ -54,6 +64,23 @@ export default function SettingsPage() {
   const [savingTimezone, setSavingTimezone] = useState(false)
   const [enablingPush, setEnablingPush] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [tzSearch, setTzSearch] = useState('')
+  const allTimezones = getAllTimezones()
+  const filteredTimezones = allTimezones.filter((tz) =>
+    tz.toLowerCase().includes(tzSearch.toLowerCase())
+  )
+
+  function detectTimezone() {
+    try {
+      const detected = Intl.DateTimeFormat().resolvedOptions().timeZone
+      if (detected) {
+        setTimezone(detected)
+        toast.success(`Detected timezone: ${detected}`)
+      }
+    } catch {
+      toast.error('Could not detect timezone automatically')
+    }
+  }
 
   // Load profile
   useEffect(() => {
@@ -224,17 +251,44 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Timezone</Label>
-              <Select value={timezone} onValueChange={(v) => v && setTimezone(v)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TIMEZONES.map((tz) => (
-                    <SelectItem key={tz} value={tz}>{tz}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex items-center justify-between">
+                <Label>Timezone</Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={detectTimezone}
+                  className="text-xs text-blue-600 h-6 px-2"
+                >
+                  📍 Detect My Timezone
+                </Button>
+              </div>
+
+              <div className="space-y-2">
+                <Input
+                  placeholder="Filter timezones (e.g. Kolkata, London, New_York)..."
+                  value={tzSearch}
+                  onChange={(e) => setTzSearch(e.target.value)}
+                  className="text-xs h-8"
+                />
+                <Select value={timezone} onValueChange={(v) => v && setTimezone(v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select timezone" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-64">
+                    {filteredTimezones.length === 0 ? (
+                      <div className="py-2 px-3 text-xs text-gray-500">No timezones matching &quot;{tzSearch}&quot;</div>
+                    ) : (
+                      filteredTimezones.slice(0, 100).map((tz) => (
+                        <SelectItem key={tz} value={tz}>{tz}</SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+                {filteredTimezones.length > 100 && (
+                  <p className="text-[11px] text-gray-400">Showing first 100 matches. Type above to refine.</p>
+                )}
+              </div>
             </div>
             <Button onClick={saveTimezone} disabled={savingTimezone} size="sm">
               {savingTimezone ? 'Saving…' : 'Save Timezone'}

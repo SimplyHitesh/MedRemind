@@ -43,7 +43,8 @@ Deno.serve(async (req: Request) => {
         days_of_week,
         start_date,
         end_date,
-        profiles!inner(timezone)
+        profiles!inner(timezone),
+        medications!inner(is_active, duration_end_date)
       `)
       .eq('is_active', true)
       .lte('start_date', now.toISOString().split('T')[0])
@@ -64,9 +65,15 @@ Deno.serve(async (req: Request) => {
       status: string
     }[] = []
 
+    const todayStr = now.toISOString().split('T')[0]
+
     for (const schedule of activeSchedules ?? []) {
-      // Skip if past end_date
-      if (schedule.end_date && schedule.end_date < now.toISOString().split('T')[0]) continue
+      const med = schedule.medications as { is_active: boolean; duration_end_date: string | null }
+      if (!med || !med.is_active) continue
+      // Skip if past medication duration_end_date
+      if (med.duration_end_date && med.duration_end_date < todayStr) continue
+      // Skip if past schedule end_date
+      if (schedule.end_date && schedule.end_date < todayStr) continue
 
       const profile = schedule.profiles as { timezone: string }
       const tz = profile?.timezone ?? 'UTC'
@@ -113,8 +120,12 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // 10 minutes ago for nagging, 2 hours ago cutoff for missed
+    const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000).toISOString()
+    const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString()
+
     // ================================================================
-    // DISPATCH STEP: Send notifications for pending unnotified due logs
+    // DISPATCH STEP: Send notifications for pending unnotified or nagged logs
     // ================================================================
     const { data: dueLogs, error: dueError } = await supabase
       .from('medication_logs')
@@ -123,12 +134,16 @@ Deno.serve(async (req: Request) => {
         user_id,
         medication_id,
         scheduled_for,
-        medications!inner(name, dose_amount, dose_unit),
+        notified_at,
+        snoozed_until,
+        medications!inner(name, dose_amount, dose_unit, is_active, tablets_remaining, tablets_per_dose, refill_alert_days),
         profiles!inner(push_subscription, timezone)
       `)
       .eq('status', 'pending')
-      .is('notified_at', null)
       .lte('scheduled_for', nowIso)
+      .gt('scheduled_for', twoHoursAgo)
+      .or(`snoozed_until.is.null,snoozed_until.lte.${nowIso}`)
+      .or(`notified_at.is.null,notified_at.lte.${tenMinutesAgo}`)
 
     if (dueError) {
       console.error('Failed to fetch due logs:', dueError)
@@ -139,31 +154,59 @@ Deno.serve(async (req: Request) => {
 
     for (const log of dueLogs ?? []) {
       const profile = log.profiles as { push_subscription: Record<string, unknown> | null; timezone: string }
-      const medication = log.medications as { name: string; dose_amount: number; dose_unit: string }
+      const medication = log.medications as {
+        name: string
+        dose_amount: number
+        dose_unit: string
+        is_active: boolean
+        tablets_remaining: number | null
+        tablets_per_dose: number
+        refill_alert_days: number
+      }
+
+      if (!medication.is_active) continue
+
+      // Calculate supply/refill warning
+      let refillWarning = ''
+      if (medication.tablets_remaining !== null) {
+        const remaining = Number(medication.tablets_remaining)
+        const perDose = Number(medication.tablets_per_dose || 1)
+        if (remaining <= perDose) {
+          refillWarning = ` 🚨 CRITICAL: Only ${remaining} ${medication.dose_unit} left!`
+        } else if (remaining <= perDose * (medication.refill_alert_days || 3)) {
+          refillWarning = ` ⚠️ Refill alert: ${remaining} ${medication.dose_unit} left.`
+        }
+      }
+
+      const isNag = !!log.notified_at
+      const title = isNag ? `⏰ Reminder: ${medication.name}` : `💊 Time for ${medication.name}`
+      const bodyText = isNag
+        ? `You haven't marked your ${medication.dose_amount} ${medication.dose_unit} as taken yet.${refillWarning}`
+        : `Take ${medication.dose_amount} ${medication.dose_unit} now.${refillWarning}`
 
       const payload = {
         medication_log_id: log.id,
         medication_name: medication.name,
         dose: `${medication.dose_amount} ${medication.dose_unit}`,
         scheduled_for: log.scheduled_for,
+        refill_warning: refillWarning.trim() || null,
+        is_nag: isNag,
       }
 
       let notificationStatus: 'sent' | 'failed' | 'mocked' = 'mocked'
       let channel: 'push' | 'email' = 'email'
 
       if (profile.push_subscription && vapidPublicKey && vapidPrivateKey) {
-        // Attempt Web Push
         channel = 'push'
         try {
-          // Build Web Push payload using VAPID
           const pushSubscription = profile.push_subscription as {
             endpoint: string
             keys: { p256dh: string; auth: string }
           }
 
           const pushPayload = JSON.stringify({
-            title: `💊 Time for ${medication.name}`,
-            body: `Take ${medication.dose_amount} ${medication.dose_unit} now`,
+            title,
+            body: bodyText,
             data: payload,
           })
 

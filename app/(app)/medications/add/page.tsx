@@ -44,8 +44,33 @@ export default function AddMedicationPage() {
   const [instructions, setInstructions] = useState('')
   const [colorTag, setColorTag] = useState('#3b82f6')
   const [schedules, setSchedules] = useState<ScheduleFormEntry[]>([defaultSchedule()])
+  const [tabletsRemaining, setTabletsRemaining] = useState('')
+  const [tabletsPerDose, setTabletsPerDose] = useState('1')
+  const [refillAlertDays, setRefillAlertDays] = useState('3')
+  const [durationEndDate, setDurationEndDate] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+
+  // Compute daily intake
+  const dailySchedulesCount = schedules.reduce((acc, s) => {
+    if (s.recurrence === 'daily') return acc + 1
+    return acc + (s.daysOfWeek.length / 7)
+  }, 0)
+  const dailyUnitsConsumed = dailySchedulesCount * (Number(tabletsPerDose) || 1)
+  const estimatedDaysLeft =
+    tabletsRemaining && dailyUnitsConsumed > 0
+      ? Math.floor(Number(tabletsRemaining) / dailyUnitsConsumed)
+      : null
+
+  function setPresetDuration(days: number | null) {
+    if (days === null) {
+      setDurationEndDate('')
+    } else {
+      const d = new Date()
+      d.setDate(d.getDate() + days)
+      setDurationEndDate(d.toISOString().split('T')[0])
+    }
+  }
 
   function validate(): boolean {
     const errors: Record<string, string> = {}
@@ -81,6 +106,10 @@ export default function AddMedicationPage() {
         instructions: instructions.trim() || null,
         color_tag: colorTag,
         user_id: user.id,
+        tablets_remaining: tabletsRemaining ? Number(tabletsRemaining) : null,
+        tablets_per_dose: Number(tabletsPerDose) > 0 ? Number(tabletsPerDose) : 1,
+        refill_alert_days: Number(refillAlertDays) > 0 ? Number(refillAlertDays) : 3,
+        duration_end_date: durationEndDate || null,
       })
       .select()
       .single()
@@ -98,6 +127,7 @@ export default function AddMedicationPage() {
       time_of_day: s.timeOfDay + ':00',
       recurrence: s.recurrence,
       days_of_week: s.recurrence === 'specific_days' ? s.daysOfWeek : null,
+      end_date: durationEndDate || null,
     }))
 
     const { error: schedError } = await supabase.from('schedules').insert(scheduleRows)
@@ -325,6 +355,152 @@ export default function AddMedicationPage() {
                 </div>
               </div>
             ))}
+          </CardContent>
+        </Card>
+
+        {/* Treatment Duration (Until when to take) */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">📅 Treatment Duration</CardTitle>
+            <p className="text-xs text-gray-500">
+              Till when do you need to take this medicine? (You can easily extend this anytime)
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="durationEndDate">Take Until Date</Label>
+              <Input
+                id="durationEndDate"
+                type="date"
+                value={durationEndDate}
+                onChange={(e) => setDurationEndDate(e.target.value)}
+                min={new Date().toISOString().split('T')[0]}
+                disabled={submitting}
+              />
+              <p className="text-xs text-gray-500">
+                {durationEndDate
+                  ? `Reminders will run until ${new Date(durationEndDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                  : 'Currently set to ongoing / continuous (no end date)'}
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs text-gray-600">Quick Presets</Label>
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  type="button"
+                  variant={durationEndDate && (new Date(durationEndDate).getTime() - new Date().getTime()) / 86400000 <= 6 ? 'default' : 'outline'}
+                  size="sm"
+                  className="text-xs h-7"
+                  onClick={() => setPresetDuration(5)}
+                >
+                  5 Days (Antibiotics)
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="text-xs h-7"
+                  onClick={() => setPresetDuration(7)}
+                >
+                  7 Days
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="text-xs h-7"
+                  onClick={() => setPresetDuration(14)}
+                >
+                  14 Days
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="text-xs h-7"
+                  onClick={() => setPresetDuration(30)}
+                >
+                  30 Days
+                </Button>
+                <Button
+                  type="button"
+                  variant={!durationEndDate ? 'default' : 'outline'}
+                  size="sm"
+                  className="text-xs h-7"
+                  onClick={() => setPresetDuration(null)}
+                >
+                  Ongoing / Long-Term
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Tablet Inventory & Refill Alert Tracker */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">📦 Tablet Inventory & Refill Alert</CardTitle>
+            <p className="text-xs text-gray-500">
+              Track how many tablets you have left and get warned 2-3 days before you run out.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="tabletsRemaining">Tablets on Hand (Supply)</Label>
+                <Input
+                  id="tabletsRemaining"
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  placeholder="e.g. 30"
+                  value={tabletsRemaining}
+                  onChange={(e) => setTabletsRemaining(e.target.value)}
+                  disabled={submitting}
+                />
+                <p className="text-[11px] text-gray-500">Optional. Leave blank if unmetered.</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="tabletsPerDose">Tablets per Dose</Label>
+                <Input
+                  id="tabletsPerDose"
+                  type="number"
+                  min="0.25"
+                  step="0.25"
+                  value={tabletsPerDose}
+                  onChange={(e) => setTabletsPerDose(e.target.value)}
+                  disabled={submitting}
+                />
+                <p className="text-[11px] text-gray-500">How many units taken each time (e.g. 1 or 2)</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="refillAlertDays">Refill Warning Threshold (Days)</Label>
+              <Input
+                id="refillAlertDays"
+                type="number"
+                min="1"
+                max="14"
+                value={refillAlertDays}
+                onChange={(e) => setRefillAlertDays(e.target.value)}
+                disabled={submitting}
+                className="max-w-xs"
+              />
+              <p className="text-xs text-gray-500">
+                You will be notified {refillAlertDays} days in advance and on the final day before running out.
+              </p>
+            </div>
+
+            {tabletsRemaining && dailyUnitsConsumed > 0 && (
+              <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 text-xs text-blue-900 space-y-1">
+                <p className="font-semibold">📊 Calculated Consumption:</p>
+                <p>• Taking {tabletsPerDose} tablet(s) across {dailySchedulesCount.toFixed(1)} time(s) daily = <strong>{dailyUnitsConsumed.toFixed(1)} tablets/day</strong></p>
+                <p>• Your {tabletsRemaining} tablets will last approximately <strong>{estimatedDaysLeft} days</strong></p>
+              </div>
+            )}
           </CardContent>
         </Card>
 

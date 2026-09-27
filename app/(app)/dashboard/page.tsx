@@ -26,7 +26,11 @@ export default async function DashboardPage() {
         dose_amount,
         dose_unit,
         form,
-        color_tag
+        color_tag,
+        tablets_remaining,
+        tablets_per_dose,
+        refill_alert_days,
+        duration_end_date
       )
     `)
     .eq('user_id', user.id)
@@ -34,5 +38,18 @@ export default async function DashboardPage() {
     .lte('scheduled_for', todayEnd.toISOString())
     .order('scheduled_for', { ascending: true })
 
-  return <DashboardClient initialLogs={logs ?? []} userId={user.id} />
+  const { data: medications } = await supabase
+    .from('medications')
+    .select('*')
+    .eq('user_id', user.id)
+    .eq('is_active', true)
+    .order('name')
+
+  return (
+    <DashboardClient
+      initialLogs={logs ?? []}
+      initialMedications={medications ?? []}
+      userId={user.id}
+    />
+  )
 }
