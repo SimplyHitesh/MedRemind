@@ -181,6 +181,23 @@ export default function EditMedicationClient({ medication, originalSchedules }: 
     setSchedules((prev) => [...prev, { timeOfDay: '08:00', recurrence: 'daily', daysOfWeek: [] }])
   }
 
+  function setDosesPerDay(count: number) {
+    let newTimes: string[] = []
+    if (count === 1) newTimes = ['09:00']
+    else if (count === 2) newTimes = ['08:00', '20:00']
+    else if (count === 3) newTimes = ['08:00', '14:00', '20:00']
+    else if (count === 4) newTimes = ['08:00', '12:00', '16:00', '20:00']
+
+    setSchedules(
+      newTimes.map((time, idx) => ({
+        id: schedules[idx]?.id,
+        timeOfDay: time,
+        recurrence: 'daily',
+        daysOfWeek: [],
+      }))
+    )
+  }
+
   function removeSchedule(i: number) {
     setSchedules((prev) => prev.filter((_, idx) => idx !== i))
   }
@@ -300,6 +317,41 @@ export default function EditMedicationClient({ medication, originalSchedules }: 
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Frequency selection */}
+            <div className="space-y-2 pb-2">
+              <Label className="text-sm font-semibold text-gray-800">
+                How many times per day do you take this medicine?
+              </Label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {[
+                  { count: 1, label: 'Once daily', sub: '1 time / day' },
+                  { count: 2, label: 'Twice daily', sub: '2 times / day' },
+                  { count: 3, label: '3 times daily', sub: '3 times / day' },
+                  { count: 4, label: '4 times daily', sub: '4 times / day' },
+                ].map((item) => (
+                  <Button
+                    key={item.count}
+                    type="button"
+                    variant={schedules.length === item.count ? 'default' : 'outline'}
+                    className={`h-auto py-2 px-3 flex flex-col items-center justify-center text-center ${
+                      schedules.length === item.count
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'border-gray-200 hover:border-blue-300'
+                    }`}
+                    onClick={() => setDosesPerDay(item.count)}
+                  >
+                    <span className="font-semibold text-xs">{item.label}</span>
+                    <span className="text-[10px] opacity-80">{item.sub}</span>
+                  </Button>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500">
+                Selecting a frequency sets up the times below. You can adjust the exact time for each dose.
+              </p>
+            </div>
+
+            <Separator className="my-2" />
+
             {formErrors.schedules && <p className="text-xs text-red-600">{formErrors.schedules}</p>}
             {schedules.map((s, i) => (
               <div key={i}>

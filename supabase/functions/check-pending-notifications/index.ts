@@ -1,4 +1,5 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import webpush from 'npm:web-push@3.6.7'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -210,20 +211,17 @@ Deno.serve(async (req: Request) => {
             data: payload,
           })
 
-          // Use Supabase's built-in web-push via fetch to endpoint
-          // For a full VAPID implementation we need web-push library
-          // Since Deno doesn't have web-push natively, we use the endpoint directly
-          // with the Authorization header approach
-          const pushResp = await fetch(pushSubscription.endpoint, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'TTL': '60',
-            },
-            body: pushPayload,
+          webpush.setVapidDetails(
+            'mailto:support@medremind.app',
+            vapidPublicKey,
+            vapidPrivateKey
+          )
+
+          await webpush.sendNotification(pushSubscription, pushPayload, {
+            TTL: 60,
           })
 
-          notificationStatus = pushResp.ok ? 'sent' : 'failed'
+          notificationStatus = 'sent'
         } catch (err) {
           console.error('Web push failed:', err)
           notificationStatus = 'failed'

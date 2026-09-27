@@ -18,9 +18,9 @@ export default async function AppLayout({
   }
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="flex min-h-screen bg-gray-50 flex-col md:flex-row">
       <AppNav />
-      <main className="flex-1 ml-60 p-8 min-h-screen">
+      <main className="flex-1 w-full max-w-full md:ml-60 p-4 sm:p-6 md:p-8 pt-16 md:pt-8 pb-24 md:pb-8 min-h-screen overflow-x-hidden">
         {children}
       </main>
       <Toaster richColors position="top-right" />

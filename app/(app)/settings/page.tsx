@@ -63,6 +63,7 @@ export default function SettingsPage() {
   const [permissionState, setPermissionState] = useState<NotificationPermission>('default')
   const [savingTimezone, setSavingTimezone] = useState(false)
   const [enablingPush, setEnablingPush] = useState(false)
+  const [testingPush, setTestingPush] = useState(false)
   const [loading, setLoading] = useState(true)
   const [tzSearch, setTzSearch] = useState('')
   const allTimezones = getAllTimezones()
@@ -223,6 +224,23 @@ export default function SettingsPage() {
     setEnablingPush(false)
   }
 
+  async function sendTestNotification() {
+    setTestingPush(true)
+    try {
+      const res = await fetch('/api/notifications/test', { method: 'POST' })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        toast.success('Test notification sent! Look for the alert in your system/browser notification bar.')
+      } else {
+        toast.error(data.error || 'Failed to send test notification')
+      }
+    } catch {
+      toast.error('Failed to send test notification')
+    } finally {
+      setTestingPush(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -331,15 +349,26 @@ export default function SettingsPage() {
                   </div>
 
                   {pushEnabled ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={disablePushNotifications}
-                      disabled={enablingPush}
-                      className="text-red-600 hover:bg-red-50"
-                    >
-                      {enablingPush ? '…' : 'Disable'}
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={sendTestNotification}
+                        disabled={testingPush}
+                        className="text-blue-700 border-blue-300 hover:bg-blue-50 text-xs"
+                      >
+                        {testingPush ? 'Sending…' : '🧪 Send Test Notification'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={disablePushNotifications}
+                        disabled={enablingPush}
+                        className="text-red-600 hover:bg-red-50 text-xs"
+                      >
+                        {enablingPush ? '…' : 'Disable'}
+                      </Button>
+                    </div>
                   ) : (
                     <Button
                       size="sm"

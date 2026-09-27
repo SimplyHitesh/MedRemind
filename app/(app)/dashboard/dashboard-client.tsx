@@ -82,6 +82,8 @@ export default function DashboardClient({
   const [extendMed, setExtendMed] = useState<Medication | null>(null)
   const [extendDate, setExtendDate] = useState('')
   const [extending, setExtending] = useState(false)
+  const [snoozeLog, setSnoozeLog] = useState<LogWithMedication | null>(null)
+  const [snoozeMinutes, setSnoozeMinutes] = useState('10')
 
   // Realtime subscription
   useEffect(() => {
@@ -202,23 +204,26 @@ export default function DashboardClient({
     setIsMarking((prev) => ({ ...prev, [logId]: false }))
   }
 
-  async function snoozeDose(logId: string) {
-    setIsSnoozing((prev) => ({ ...prev, [logId]: true }))
+  async function confirmSnooze() {
+    if (!snoozeLog) return
+    const mins = Number(snoozeMinutes) || 10
+    setIsSnoozing((prev) => ({ ...prev, [snoozeLog.id]: true }))
     try {
       const res = await fetch('/api/logs/snooze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ logId, minutes: 10 }),
+        body: JSON.stringify({ logId: snoozeLog.id, minutes: mins }),
       })
       if (res.ok) {
-        toast.info('⏰ Snoozed for 10 minutes. We will remind you again!')
+        toast.info(`⏰ Snoozed for ${mins} minutes. We will remind you again!`)
+        setSnoozeLog(null)
       } else {
         toast.error('Failed to snooze dose.')
       }
     } catch {
       toast.error('Failed to snooze dose.')
     } finally {
-      setIsSnoozing((prev) => ({ ...prev, [logId]: false }))
+      setIsSnoozing((prev) => ({ ...prev, [snoozeLog.id]: false }))
     }
   }
 
@@ -521,11 +526,14 @@ export default function DashboardClient({
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => snoozeDose(log.id)}
-                        disabled={marking || snoozing || isPending}
+                        onClick={() => {
+                          setSnoozeLog(log)
+                          setSnoozeMinutes('10')
+                        }}
+                        disabled={marking || (snoozing && isSnoozing[log.id]) || isPending}
                         className="text-amber-700 border-amber-300 hover:bg-amber-50"
                       >
-                        {snoozing ? '…' : '⏰ Snooze'}
+                        {(snoozing && isSnoozing[log.id]) ? '…' : '⏰ Snooze'}
                       </Button>
                       <Button
                         size="sm"
@@ -662,6 +670,76 @@ export default function DashboardClient({
             </Button>
             <Button onClick={handleExtend} disabled={extending}>
               {extending ? 'Saving…' : 'Save Duration'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Custom Snooze Dialog */}
+      <Dialog open={!!snoozeLog} onOpenChange={(open) => !open && setSnoozeLog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>⏰ Snooze Reminder: {snoozeLog?.medications?.name}</DialogTitle>
+            <DialogDescription>
+              Choose how long you want to snooze this reminder. We will notify you again once the time is up.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Quick Snooze</label>
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                {[
+                  { label: '5 min', val: '5' },
+                  { label: '10 min', val: '10' },
+                  { label: '15 min', val: '15' },
+                  { label: '30 min', val: '30' },
+                  { label: '1 hour', val: '60' },
+                ].map((item) => (
+                  <Button
+                    key={item.val}
+                    type="button"
+                    variant={snoozeMinutes === item.val ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-8 text-xs font-medium"
+                    onClick={() => setSnoozeMinutes(item.val)}
+                  >
+                    {item.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Or Custom Minutes</label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min="1"
+                  max="1440"
+                  step="1"
+                  value={snoozeMinutes}
+                  onChange={(e) => setSnoozeMinutes(e.target.value)}
+                  placeholder="e.g. 20"
+                  className="w-32"
+                />
+                <span className="text-sm text-gray-500">minutes later</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-amber-700 bg-amber-50 p-2.5 rounded-md border border-amber-200">
+              💡 We will alert you again in <strong>{snoozeMinutes || 0} minutes</strong> so you won&apos;t miss your dose!
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSnoozeLog(null)} disabled={snoozeLog ? isSnoozing[snoozeLog.id] : false}>
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmSnooze}
+              disabled={!snoozeMinutes || Number(snoozeMinutes) <= 0 || (snoozeLog ? isSnoozing[snoozeLog.id] : false)}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              {(snoozeLog && isSnoozing[snoozeLog.id]) ? 'Snoozing…' : `Snooze for ${snoozeMinutes || 0}m`}
             </Button>
           </DialogFooter>
         </DialogContent>
