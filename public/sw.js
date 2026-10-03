@@ -48,6 +48,7 @@ self.addEventListener('notificationclick', (event) => {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ logId }),
+              credentials: 'include',
             })
           } catch (e) {
             console.error('Failed to mark as taken in SW background:', e)
@@ -73,6 +74,7 @@ self.addEventListener('notificationclick', (event) => {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ logId, minutes: 10 }),
+              credentials: 'include',
             })
           } catch (e) {
             console.error('Failed to snooze in SW background:', e)

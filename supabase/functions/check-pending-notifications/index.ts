@@ -113,7 +113,7 @@ Deno.serve(async (req: Request) => {
     // ================================================================
     // DISPATCH STEP: Send notifications for pending unnotified or nagged logs
     // ================================================================
-    const { data: dueLogs, error: dueError } = await supabase
+    const { data: pendingLogs, error: dueError } = await supabase
       .from('medication_logs')
       .select(`
         id,
@@ -128,12 +128,42 @@ Deno.serve(async (req: Request) => {
       .eq('status', 'pending')
       .lte('scheduled_for', nowIso)
       .gt('scheduled_for', twoHoursAgo)
-      .or(`snoozed_until.is.null,snoozed_until.lte.${nowIso}`)
-      .or(`notified_at.is.null,notified_at.lte.${tenMinutesAgo}`)
 
     if (dueError) {
       console.error('Failed to fetch due logs:', dueError)
     }
+
+    const nowTime = now.getTime()
+    const tenMins = 10 * 60 * 1000
+
+    const dueLogs = (pendingLogs ?? []).filter((log) => {
+      const notifiedTime = log.notified_at ? new Date(log.notified_at).getTime() : null
+      const snoozedTime = log.snoozed_until ? new Date(log.snoozed_until).getTime() : null
+
+      // If snoozed into the future, do NOT notify yet
+      if (snoozedTime && snoozedTime > nowTime) {
+        return false
+      }
+
+      // Case 1: Snooze time has arrived and hasn't been notified since snoozed
+      if (snoozedTime && snoozedTime <= nowTime) {
+        if (!notifiedTime || notifiedTime < snoozedTime) {
+          return true
+        }
+      }
+
+      // Case 2: Never notified before
+      if (!notifiedTime) {
+        return true
+      }
+
+      // Case 3: Nagging reminder (already notified, not snoozed, and 10 mins have elapsed)
+      if (!snoozedTime && nowTime - notifiedTime >= tenMins) {
+        return true
+      }
+
+      return false
+    })
 
     const vapidPublicKey = Deno.env.get('VAPID_PUBLIC_KEY') ?? ''
     const vapidPrivateKey = Deno.env.get('VAPID_PRIVATE_KEY') ?? ''
@@ -170,11 +200,19 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      const isNag = !!log.notified_at
-      const title = isNag ? `⏰ Reminder: ${medication.name}` : `💊 Time for ${medication.name}`
-      const bodyText = isNag
-        ? `You haven't taken your ${medication.dose_amount} ${medication.dose_unit} yet.${refillWarning}`
-        : `Take ${medication.dose_amount} ${medication.dose_unit} now.${refillWarning}`
+      const isSnooze = !!log.snoozed_until && new Date(log.snoozed_until).getTime() <= nowTime
+      const isNag = !isSnooze && !!log.notified_at
+
+      let title = `💊 Time for ${medication.name}`
+      let bodyText = `Take ${medication.dose_amount} ${medication.dose_unit} now.${refillWarning}`
+
+      if (isSnooze) {
+        title = `⏰ Snooze Reminder: ${medication.name}`
+        bodyText = `Snooze finished for ${medication.name} (${medication.dose_amount} ${medication.dose_unit}). Time to take it!${refillWarning}`
+      } else if (isNag) {
+        title = `⏰ Reminder: ${medication.name}`
+        bodyText = `You haven't taken your ${medication.dose_amount} ${medication.dose_unit} yet.${refillWarning}`
+      }
 
       const payload = {
         medication_log_id: log.id,
@@ -183,6 +221,7 @@ Deno.serve(async (req: Request) => {
         scheduled_for: log.scheduled_for,
         refill_warning: refillWarning.trim() || null,
         is_nag: isNag,
+        is_snooze: isSnooze,
       }
 
       let notificationStatus: 'sent' | 'failed' | 'mocked' = 'mocked'
@@ -226,8 +265,11 @@ Deno.serve(async (req: Request) => {
         status: notificationStatus,
       })
 
-      // Mark log as notified
-      await supabase.from('medication_logs').update({ notified_at: nowIso }).eq('id', log.id)
+      // Mark log as notified and clear snoozed_until since snooze reminder was delivered
+      await supabase
+        .from('medication_logs')
+        .update({ notified_at: nowIso, snoozed_until: null })
+        .eq('id', log.id)
     }
 
     // Mark overdue logs as missed
