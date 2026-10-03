@@ -6,7 +6,9 @@ import { NextResponse } from 'next/server'
 export async function POST() {
   try {
     const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -21,20 +23,65 @@ export async function POST() {
 
     if (error || !profile?.push_subscription) {
       return NextResponse.json(
-        { error: 'No active push subscription found. Please tap "Enable Notifications" first.' },
+        { error: 'No active notification subscription found. Please tap "Enable Notifications" first.' },
         { status: 400 }
       )
     }
 
-    // Send real push notification
-    await sendWebPushNotification(profile.push_subscription, {
-      title: '💊 Test Medication Reminder',
-      body: 'This is a test notification from MedRemind! Tap to test your action buttons.',
-      data: {
-        test: true,
-        timestamp: new Date().toISOString(),
-      },
-    })
+    // Fetch user's active medication details for the notification
+    const { data: userMed } = await admin
+      .from('medications')
+      .select('name, dose_amount, dose_unit, form, tablets_remaining, instructions')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .limit(1)
+      .maybeSingle()
+
+    const medName = userMed?.name || 'Ibuprofen'
+    const doseDetails = userMed
+      ? `${userMed.dose_amount} ${userMed.dose_unit} · ${userMed.form}`
+      : '200 mg · tablet'
+    const stockDetails =
+      userMed?.tablets_remaining != null ? ` · 📦 ${userMed.tablets_remaining} remaining` : ''
+    const instructDetails = userMed?.instructions ? ` (${userMed.instructions})` : ''
+
+    const title = `💊 Time for ${medName}`
+    const body = `Take ${doseDetails}${stockDetails}${instructDetails}`
+
+    try {
+      await sendWebPushNotification(profile.push_subscription, {
+        title,
+        body,
+        data: {
+          test: true,
+          medication_name: medName,
+          timestamp: new Date().toISOString(),
+        },
+      })
+    } catch (pushErr: unknown) {
+      const errObj = pushErr as { statusCode?: number; message?: string }
+      const isGone =
+        errObj?.statusCode === 410 ||
+        errObj?.statusCode === 404 ||
+        String(errObj?.message || '').includes('unexpected response code')
+
+      if (isGone) {
+        // Clear stale subscription from DB so user can cleanly re-subscribe
+        await admin
+          .from('profiles')
+          .update({ push_subscription: null, updated_at: new Date().toISOString() })
+          .eq('id', user.id)
+
+        return NextResponse.json(
+          {
+            error:
+              'Notification session was unsubscribed. Please tap "Enable Notifications" to generate a fresh subscription.',
+          },
+          { status: 410 }
+        )
+      }
+      throw pushErr
+    }
 
     return NextResponse.json({ success: true, message: 'Notification sent successfully!' })
   } catch (err) {

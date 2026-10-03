@@ -24,9 +24,8 @@ self.addEventListener('push', (event) => {
     badge: '/favicon.ico',
     data: data.data ?? {},
     actions: [
-      { action: 'taken', title: '✅ Tablet Taken' },
-      { action: 'snooze', title: '⏰ Snooze 10m' },
-      { action: 'noted', title: 'Noted' },
+      { action: 'taken', title: 'Taken' },
+      { action: 'snooze', title: 'Snooze' },
     ],
     requireInteraction: true,
     tag: data.data?.medication_log_id ?? 'med-reminder',
@@ -81,9 +80,6 @@ self.addEventListener('notificationclick', (event) => {
         }
       })()
     )
-  } else if (event.action === 'noted') {
-    // User noted, do not open window
-    return
   } else {
     // Clicked notification body -> focus/open dashboard
     event.waitUntil(

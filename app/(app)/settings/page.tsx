@@ -161,6 +161,14 @@ export default function SettingsPage() {
         return
       }
 
+      // Unsubscribe any stale existing subscription on device before requesting a fresh one
+      const existingSub = await registration.pushManager.getSubscription()
+      if (existingSub) {
+        try {
+          await existingSub.unsubscribe()
+        } catch {}
+      }
+
       const applicationServerKey = urlBase64ToUint8Array(vapidPublicKey)
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
@@ -214,32 +222,13 @@ export default function SettingsPage() {
     } catch {}
 
     setPushEnabled(false)
-    toast.success('Push notifications disabled.')
+    toast.success('Push notifications turned off.')
     setEnablingPush(false)
   }
 
   async function sendTestNotification() {
     setTestingPush(true)
     try {
-      // Trigger instant local notification via Service Worker registration
-      if ('serviceWorker' in navigator && Notification.permission === 'granted') {
-        const reg = await navigator.serviceWorker.ready
-        if (reg && reg.showNotification) {
-          reg.showNotification('💊 Test Medication Reminder', {
-            body: 'This is a test notification from MedRemind! Action buttons work directly in your notification center.',
-            icon: '/favicon.ico',
-            badge: '/favicon.ico',
-            actions: [
-              { action: 'taken', title: '✅ Tablet Taken' },
-              { action: 'snooze', title: '⏰ Snooze 10m' },
-              { action: 'noted', title: 'Noted' },
-            ],
-            requireInteraction: true,
-            tag: 'test-med-reminder',
-          } as any)
-        }
-      }
-
       const res = await fetch('/api/notifications/test', { method: 'POST' })
       const data = await res.json()
       if (res.ok && data.success) {
@@ -247,6 +236,9 @@ export default function SettingsPage() {
           duration: 5000,
         })
       } else {
+        if (res.status === 410) {
+          setPushEnabled(false)
+        }
         toast.error(data.error || 'Failed to send test notification')
       }
     } catch {
@@ -381,7 +373,7 @@ export default function SettingsPage() {
                         disabled={enablingPush}
                         className="text-red-600 hover:bg-red-50 text-xs"
                       >
-                        {enablingPush ? '…' : 'Disable'}
+                        {enablingPush ? '…' : 'Turn Off'}
                       </Button>
                     </div>
                   ) : (
