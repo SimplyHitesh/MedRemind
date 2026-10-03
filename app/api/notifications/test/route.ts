@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { sendWebPushNotification } from '@/lib/web-push'
 import { NextResponse } from 'next/server'
 
@@ -11,7 +12,8 @@ export async function POST() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: profile, error } = await supabase
+    const admin = createAdminClient()
+    const { data: profile, error } = await admin
       .from('profiles')
       .select('push_subscription')
       .eq('id', user.id)
@@ -19,7 +21,7 @@ export async function POST() {
 
     if (error || !profile?.push_subscription) {
       return NextResponse.json(
-        { error: 'No active push subscription found. Please enable notifications first.' },
+        { error: 'No active push subscription found. Please tap "Enable Notifications" first.' },
         { status: 400 }
       )
     }

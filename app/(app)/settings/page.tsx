@@ -170,29 +170,27 @@ export default function SettingsPage() {
         ) as ArrayBuffer,
       })
 
-      // Save to Supabase via Edge Function
-      const supabase = createClient()
-      const { error } = await supabase.functions.invoke('save-push-subscription', {
-        body: {
-          subscription: {
-            endpoint: subscription.endpoint,
-            keys: {
-              p256dh: btoa(String.fromCharCode(...new Uint8Array(subscription.getKey('p256dh')!))),
-              auth: btoa(String.fromCharCode(...new Uint8Array(subscription.getKey('auth')!))),
-            },
-          },
-        },
+      // Use browser's standard W3C subscription JSON with URL-safe base64 keys
+      const subJson = subscription.toJSON()
+
+      // Save reliably via Next.js API route with session cookie
+      const res = await fetch('/api/notifications/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription: subJson }),
       })
 
-      if (error) {
-        toast.error('Failed to save push subscription')
-      } else {
-        setPushEnabled(true)
-        toast.success('Push notifications enabled! 🔔')
+      const data = await res.json()
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to save push subscription')
       }
+
+      setPushEnabled(true)
+      toast.success('Push notifications enabled! 🔔')
     } catch (err) {
       console.error('Push subscription error:', err)
-      toast.error('Failed to enable push notifications.')
+      toast.error((err as Error).message || 'Failed to enable push notifications.')
     }
 
     setEnablingPush(false)
@@ -200,9 +198,6 @@ export default function SettingsPage() {
 
   async function disablePushNotifications() {
     setEnablingPush(true)
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
 
     // Unsubscribe from browser push
     if ('serviceWorker' in navigator) {
@@ -213,11 +208,10 @@ export default function SettingsPage() {
       }
     }
 
-    // Clear from profile
-    await supabase
-      .from('profiles')
-      .update({ push_subscription: null })
-      .eq('id', user.id)
+    // Clear from profile via API route
+    try {
+      await fetch('/api/notifications/unsubscribe', { method: 'POST' })
+    } catch {}
 
     setPushEnabled(false)
     toast.success('Push notifications disabled.')
@@ -249,8 +243,8 @@ export default function SettingsPage() {
       const res = await fetch('/api/notifications/test', { method: 'POST' })
       const data = await res.json()
       if (res.ok && data.success) {
-        toast.success('Test notification sent! If you do not see a popup, check Windows Action Center (Win + N) or disable "Do Not Disturb".', {
-          duration: 6000,
+        toast.success('Test notification sent! Check your notification bar or lock screen.', {
+          duration: 5000,
         })
       } else {
         toast.error(data.error || 'Failed to send test notification')
@@ -401,11 +395,19 @@ export default function SettingsPage() {
                   )}
                 </div>
 
-                <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
-                  <p className="text-xs text-blue-800">
-                    When enabled, you&apos;ll receive a browser notification each time a medication dose is due.
-                    Notifications work even when the app tab is not active.
+                <div className="bg-blue-50 border border-blue-200 rounded-md p-3 space-y-2">
+                  <p className="text-xs text-blue-900 font-medium">
+                    🔔 When enabled, you&apos;ll receive push notifications whenever a medication dose is due, even if the app tab is closed.
                   </p>
+                  <div className="border-t border-blue-200/60 pt-2 text-xs text-blue-800 space-y-1">
+                    <p className="font-semibold text-blue-900">📱 Mobile Setup Instructions:</p>
+                    <p>
+                      • <strong>iPhone (iOS)</strong>: Tap the Safari <strong>Share</strong> button ➔ tap <strong>&quot;Add to Home Screen&quot;</strong>. Open MedRemind from your home screen to enable notifications.
+                    </p>
+                    <p>
+                      • <strong>Android</strong>: Tap the Chrome 3-dots menu ➔ tap <strong>&quot;Install App&quot;</strong> or <strong>&quot;Add to Home Screen&quot;</strong> for full native-app push notifications.
+                    </p>
+                  </div>
                 </div>
               </>
             )}

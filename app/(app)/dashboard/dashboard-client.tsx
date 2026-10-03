@@ -426,18 +426,18 @@ export default function DashboardClient({
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="bg-white rounded-lg border border-gray-200 p-4 text-center">
-          <p className="text-2xl font-bold text-gray-900">{optimisticLogs.length}</p>
-          <p className="text-xs text-gray-500 mt-1">Total doses</p>
+      <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6">
+        <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4 text-center shadow-sm">
+          <p className="text-xl sm:text-2xl font-bold text-gray-900">{optimisticLogs.length}</p>
+          <p className="text-[11px] sm:text-xs text-gray-500 mt-0.5">Total doses</p>
         </div>
-        <div className="bg-green-50 rounded-lg border border-green-200 p-4 text-center">
-          <p className="text-2xl font-bold text-green-700">{takenCount}</p>
-          <p className="text-xs text-green-600 mt-1">Taken</p>
+        <div className="bg-green-50 rounded-lg border border-green-200 p-3 sm:p-4 text-center shadow-sm">
+          <p className="text-xl sm:text-2xl font-bold text-green-700">{takenCount}</p>
+          <p className="text-[11px] sm:text-xs text-green-600 mt-0.5">Taken</p>
         </div>
-        <div className="bg-yellow-50 rounded-lg border border-yellow-200 p-4 text-center">
-          <p className="text-2xl font-bold text-yellow-700">{pendingCount}</p>
-          <p className="text-xs text-yellow-600 mt-1">Pending</p>
+        <div className="bg-yellow-50 rounded-lg border border-yellow-200 p-3 sm:p-4 text-center shadow-sm">
+          <p className="text-xl sm:text-2xl font-bold text-yellow-700">{pendingCount}</p>
+          <p className="text-[11px] sm:text-xs text-yellow-600 mt-0.5">Pending</p>
         </div>
       </div>
 
@@ -449,7 +449,7 @@ export default function DashboardClient({
             variant={filter === f ? 'default' : 'outline'}
             size="sm"
             onClick={() => setFilter(f)}
-            className="capitalize"
+            className="capitalize text-xs sm:text-sm px-3"
           >
             {f}
           </Button>
@@ -458,12 +458,12 @@ export default function DashboardClient({
 
       {/* Log list */}
       {filtered.length === 0 ? (
-        <div className="text-center py-16 text-gray-400">
+        <div className="text-center py-16 text-gray-400 bg-white rounded-lg border border-dashed border-gray-200 p-6">
           <p className="text-5xl mb-3">🎉</p>
-          <p className="text-lg font-medium">
+          <p className="text-lg font-medium text-gray-800">
             {filter === 'pending' ? 'No pending doses!' : 'No doses scheduled yet'}
           </p>
-          <p className="text-sm mt-1">
+          <p className="text-sm mt-1 text-gray-500">
             {optimisticLogs.length === 0
               ? 'Add medications and schedules to see your doses here'
               : 'All caught up for now'}
@@ -484,45 +484,54 @@ export default function DashboardClient({
             return (
               <Card
                 key={log.id}
-                className={`transition-opacity ${log.status !== 'pending' ? 'opacity-70' : ''}`}
+                className={`transition-opacity ${log.status !== 'pending' ? 'opacity-70 bg-gray-50/50' : 'bg-white shadow-sm'}`}
               >
-                <CardContent className="flex items-center gap-4 py-4">
-                  {/* Color dot */}
-                  <div
-                    className="w-3.5 h-3.5 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: med?.color_tag ?? '#3b82f6' }}
-                  />
+                <CardContent className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  {/* Top / Left: Color indicator + Medication Name & Dosage details + Status badge */}
+                  <div className="flex items-start gap-3 min-w-0 flex-1">
+                    <div
+                      className="w-3.5 h-3.5 rounded-full flex-shrink-0 mt-1"
+                      style={{ backgroundColor: med?.color_tag ?? '#3b82f6' }}
+                    />
 
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900 truncate">
-                      {med?.name ?? 'Unknown medication'}
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      {med?.dose_amount} {med?.dose_unit} · {scheduledTime}
-                      {med?.tablets_remaining !== null && med?.tablets_remaining !== undefined && (
-                        <span className="ml-2 text-xs text-gray-400">
-                          ({med.tablets_remaining} {med.dose_unit} in stock)
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-semibold text-base sm:text-sm text-gray-900 break-words leading-snug">
+                          {med?.name ?? 'Unknown medication'}
+                        </p>
+                        <Badge
+                          variant="outline"
+                          className={`text-xs border ${statusConfig.color} flex-shrink-0 whitespace-nowrap ml-1`}
+                        >
+                          {statusConfig.emoji} {statusConfig.label}
+                        </Badge>
+                      </div>
+
+                      <div className="text-xs sm:text-sm text-gray-500 mt-1 flex flex-wrap items-center gap-1.5 sm:gap-2">
+                        <span className="font-medium text-gray-700">
+                          {med?.dose_amount} {med?.dose_unit}
                         </span>
-                      )}
-                    </p>
+                        <span>·</span>
+                        <span className="font-medium text-blue-700">⏰ {scheduledTime}</span>
+                        {med?.tablets_remaining !== null && med?.tablets_remaining !== undefined && (
+                          <span className="text-[11px] text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded font-medium ml-0.5">
+                            📦 {med.tablets_remaining} left
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Status badge */}
-                  <Badge variant="outline" className={`text-xs border ${statusConfig.color}`}>
-                    {statusConfig.emoji} {statusConfig.label}
-                  </Badge>
-
-                  {/* Actions */}
+                  {/* Bottom / Right Actions row on mobile, inline on desktop */}
                   {log.status === 'pending' && (
-                    <div className="flex gap-2 flex-shrink-0">
+                    <div className="flex items-center gap-2 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-gray-100 flex-shrink-0">
                       <Button
                         size="sm"
                         onClick={() => markAsTaken(log.id)}
                         disabled={marking || snoozing || isPending}
-                        className="bg-green-600 hover:bg-green-700 text-white"
+                        className="flex-1 sm:flex-none bg-green-600 hover:bg-green-700 text-white font-medium text-xs sm:text-sm h-9 px-3.5 shadow-sm"
                       >
-                        {marking ? '…' : 'Take'}
+                        {marking ? '…' : '✅ Take'}
                       </Button>
                       <Button
                         size="sm"
@@ -532,15 +541,16 @@ export default function DashboardClient({
                           setSnoozeMinutes('10')
                         }}
                         disabled={marking || (snoozing && isSnoozing[log.id]) || isPending}
-                        className="text-amber-700 border-amber-300 hover:bg-amber-50"
+                        className="flex-1 sm:flex-none text-amber-700 border-amber-300 hover:bg-amber-50 font-medium text-xs sm:text-sm h-9 px-3"
                       >
-                        {(snoozing && isSnoozing[log.id]) ? '…' : '⏰ Snooze'}
+                        {snoozing && isSnoozing[log.id] ? '…' : '⏰ Snooze'}
                       </Button>
                       <Button
                         size="sm"
                         variant="ghost"
                         onClick={() => markAsSkipped(log.id)}
                         disabled={marking || snoozing || isPending}
+                        className="text-gray-500 hover:text-gray-800 text-xs sm:text-sm h-9 px-2.5"
                       >
                         Skip
                       </Button>

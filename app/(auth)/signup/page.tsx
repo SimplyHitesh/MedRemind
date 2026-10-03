@@ -22,30 +22,27 @@ export default function SignupPage() {
     setError(null)
     setLoading(true)
 
-    const supabase = createClient()
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { full_name: fullName },
-      },
-    })
+    try {
+      const res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, fullName }),
+      })
 
-    if (error) {
-      setError(error.message)
+      const data = await res.json()
+
+      if (!res.ok || !data.success) {
+        setError(data.error || 'Failed to create account')
+        setLoading(false)
+        return
+      }
+
+      // Hard redirect ensures session cookies are flushed properly on mobile
+      window.location.href = data.redirect || '/dashboard'
+    } catch {
+      setError('An unexpected error occurred. Please try again.')
       setLoading(false)
-      return
     }
-
-    // Sign in immediately after signup (no email confirmation required for local dev)
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
-    if (signInError) {
-      setError('Account created! Please sign in.')
-      router.push('/login')
-      return
-    }
-
-    window.location.href = '/dashboard'
   }
 
   return (
