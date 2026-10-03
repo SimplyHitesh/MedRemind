@@ -2,6 +2,7 @@
 
 import { useEffect, useOptimistic, useTransition, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { LogStatus, Medication } from '@/lib/types'
 import { Badge } from '@/components/ui/badge'
@@ -64,6 +65,7 @@ export default function DashboardClient({
   initialMedications,
   userId,
 }: DashboardClientProps) {
+  const router = useRouter()
   const [logs, setLogs] = useState<LogWithMedication[]>(initialLogs)
   const [medications, setMedications] = useState<Medication[]>(initialMedications)
   const [filter, setFilter] = useState<FilterType>('all')
@@ -75,6 +77,30 @@ export default function DashboardClient({
   const [isPending, startTransition] = useTransition()
   const [isMarking, setIsMarking] = useState<Record<string, boolean>>({})
   const [isSnoozing, setIsSnoozing] = useState<Record<string, boolean>>({})
+
+  // Keep state synced with server props
+  useEffect(() => {
+    setLogs(initialLogs)
+  }, [initialLogs])
+
+  useEffect(() => {
+    setMedications(initialMedications)
+  }, [initialMedications])
+
+  // Refresh data when user returns to the tab or app gains focus
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') {
+        router.refresh()
+      }
+    }
+    window.addEventListener('focus', handleVisibility)
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      window.removeEventListener('focus', handleVisibility)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [router])
 
   // Refill & Extend dialogs state
   const [refillMed, setRefillMed] = useState<Medication | null>(null)
@@ -145,6 +171,13 @@ export default function DashboardClient({
       updateOptimisticLogs({ id: logId, status: 'taken' })
     })
 
+    const nowIso = new Date().toISOString()
+    setLogs((prev) =>
+      prev.map((log) =>
+        log.id === logId ? { ...log, status: 'taken', taken_at: nowIso } : log
+      )
+    )
+
     try {
       const res = await fetch('/api/logs/take', {
         method: 'POST',
@@ -157,6 +190,11 @@ export default function DashboardClient({
         startTransition(() => {
           updateOptimisticLogs({ id: logId, status: 'pending' })
         })
+        setLogs((prev) =>
+          prev.map((log) =>
+            log.id === logId ? { ...log, status: 'pending', taken_at: null } : log
+          )
+        )
         toast.error(data.error || 'Failed to mark as taken.')
       } else {
         const remaining = data.log?.medications?.tablets_remaining
@@ -175,6 +213,11 @@ export default function DashboardClient({
       startTransition(() => {
         updateOptimisticLogs({ id: logId, status: 'pending' })
       })
+      setLogs((prev) =>
+        prev.map((log) =>
+          log.id === logId ? { ...log, status: 'pending', taken_at: null } : log
+        )
+      )
       toast.error('Failed to mark as taken.')
     } finally {
       setIsMarking((prev) => ({ ...prev, [logId]: false }))
@@ -188,6 +231,9 @@ export default function DashboardClient({
     startTransition(() => {
       updateOptimisticLogs({ id: logId, status: 'skipped' })
     })
+    setLogs((prev) =>
+      prev.map((log) => (log.id === logId ? { ...log, status: 'skipped' } : log))
+    )
 
     const { error } = await supabase
       .from('medication_logs')
@@ -198,6 +244,9 @@ export default function DashboardClient({
       startTransition(() => {
         updateOptimisticLogs({ id: logId, status: 'pending' })
       })
+      setLogs((prev) =>
+        prev.map((log) => (log.id === logId ? { ...log, status: 'pending' } : log))
+      )
       toast.error('Failed to skip dose.')
     } else {
       toast.info('Dose marked as skipped.')
@@ -208,12 +257,21 @@ export default function DashboardClient({
   async function confirmSnooze() {
     if (!snoozeLog) return
     const mins = Number(snoozeMinutes) || 10
-    setIsSnoozing((prev) => ({ ...prev, [snoozeLog.id]: true }))
+    const targetLogId = snoozeLog.id
+    const snoozedTime = new Date(Date.now() + mins * 60000).toISOString()
+    setIsSnoozing((prev) => ({ ...prev, [targetLogId]: true }))
+
+    setLogs((prev) =>
+      prev.map((log) =>
+        log.id === targetLogId ? { ...log, snoozed_until: snoozedTime } : log
+      )
+    )
+
     try {
       const res = await fetch('/api/logs/snooze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ logId: snoozeLog.id, minutes: mins }),
+        body: JSON.stringify({ logId: targetLogId, minutes: mins }),
       })
       if (res.ok) {
         toast.info(`⏰ Snoozed for ${mins} minutes. We will remind you again!`)
@@ -224,7 +282,7 @@ export default function DashboardClient({
     } catch {
       toast.error('Failed to snooze dose.')
     } finally {
-      setIsSnoozing((prev) => ({ ...prev, [snoozeLog.id]: false }))
+      setIsSnoozing((prev) => ({ ...prev, [targetLogId]: false }))
     }
   }
 
@@ -513,6 +571,16 @@ export default function DashboardClient({
                         </span>
                         <span>·</span>
                         <span className="font-medium text-blue-700">⏰ {scheduledTime}</span>
+                        {log.status === 'pending' && log.snoozed_until && new Date(log.snoozed_until).getTime() > Date.now() && (
+                          <span className="text-[11px] text-amber-800 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded font-medium">
+                            🔔 Snoozed to {new Date(log.snoozed_until).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
+                        {log.status === 'taken' && log.taken_at && (
+                          <span className="text-[11px] text-green-800 bg-green-100 border border-green-300 px-1.5 py-0.5 rounded font-medium">
+                            ✓ Taken at {new Date(log.taken_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
                         {med?.tablets_remaining !== null && med?.tablets_remaining !== undefined && (
                           <span className="text-[11px] text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded font-medium ml-0.5">
                             📦 {med.tablets_remaining} left

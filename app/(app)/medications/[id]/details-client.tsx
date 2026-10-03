@@ -94,20 +94,20 @@ export default function MedicationDetailsClient({ medication: initialMed, schedu
   return (
     <div className="max-w-2xl mx-auto space-y-6 pb-12">
       {/* Top Navigation */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <Link href="/dashboard">
-          <Button variant="ghost" size="sm" className="text-xs text-gray-600">
-            ← Back to Dashboard
+          <Button variant="ghost" size="sm" className="text-xs text-gray-600 px-2 sm:px-3">
+            ← <span className="inline sm:hidden">Back</span><span className="hidden sm:inline">Back to Dashboard</span>
           </Button>
         </Link>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           <Link href={`/medications/${med.id}/explain`}>
-            <Button size="sm" variant="outline" className="text-xs text-blue-700 border-blue-200 hover:bg-blue-50">
-              💡 Explain Medicine
+            <Button size="sm" variant="outline" className="text-xs text-blue-700 border-blue-200 hover:bg-blue-50 px-2.5 sm:px-3">
+              💡 <span className="inline sm:hidden">Explain</span><span className="hidden sm:inline">Explain Medicine</span>
             </Button>
           </Link>
           <Link href={`/medications/${med.id}/edit`}>
-            <Button size="sm" className="text-xs">
+            <Button size="sm" className="text-xs px-3">
               ✏️ Edit
             </Button>
           </Link>
