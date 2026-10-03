@@ -25,8 +25,8 @@ self.addEventListener('push', (event) => {
     badge: '/favicon.ico',
     data: data.data ?? {},
     actions: [
-      { action: 'taken', title: 'Taken' },
-      { action: 'snooze', title: 'Snooze' },
+      { action: 'taken', title: '✅ Taken' },
+      { action: 'snooze', title: '⏰ Snooze (5m)' },
     ],
     requireInteraction: true,
     renotify: true,
@@ -68,7 +68,7 @@ self.addEventListener('notificationclick', (event) => {
       })()
     )
   } else if (event.action === 'snooze') {
-    // 2. Snooze for 10 minutes
+    // 2. Snooze for 5 minutes
     event.waitUntil(
       (async () => {
         if (logId) {
@@ -76,8 +76,17 @@ self.addEventListener('notificationclick', (event) => {
             await fetch('/api/logs/snooze', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ logId, minutes: 10 }),
+              body: JSON.stringify({ logId, minutes: 5 }),
               credentials: 'include',
+            })
+
+            // Give immediate feedback so the user knows snooze was confirmed
+            await self.registration.showNotification('⏰ Snoozed for 5 minutes', {
+              body: 'We will alert you again in 5 minutes.',
+              icon: '/favicon.ico',
+              badge: '/favicon.ico',
+              tag: 'snooze-ack',
+              silent: true,
             })
           } catch (e) {
             console.error('Failed to snooze in SW background:', e)

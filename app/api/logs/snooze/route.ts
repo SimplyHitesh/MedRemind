@@ -14,11 +14,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const snoozedUntil = new Date(Date.now() + minutes * 60 * 1000).toISOString()
+    const targetMs = Date.now() + Number(minutes) * 60 * 1000
+    // Align to the minute boundary so cron (:00) picks it up promptly at the target minute
+    const snoozedUntil = new Date(Math.floor(targetMs / 60000) * 60000).toISOString()
     const { data, error } = await supabase
       .from('medication_logs')
       .update({
         snoozed_until: snoozedUntil,
+        status: 'pending',
       })
       .eq('id', logId)
       .eq('user_id', user.id)

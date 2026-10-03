@@ -110,7 +110,7 @@ export default function DashboardClient({
   const [extendDate, setExtendDate] = useState('')
   const [extending, setExtending] = useState(false)
   const [snoozeLog, setSnoozeLog] = useState<LogWithMedication | null>(null)
-  const [snoozeMinutes, setSnoozeMinutes] = useState('10')
+  const [snoozeMinutes, setSnoozeMinutes] = useState('5')
 
   // Realtime subscription
   useEffect(() => {
@@ -606,7 +606,7 @@ export default function DashboardClient({
                         variant="outline"
                         onClick={() => {
                           setSnoozeLog(log)
-                          setSnoozeMinutes('10')
+                          setSnoozeMinutes('5')
                         }}
                         disabled={marking || (snoozing && isSnoozing[log.id]) || isPending}
                         className="flex-1 sm:flex-none text-amber-700 border-amber-300 hover:bg-amber-50 font-medium text-xs sm:text-sm h-9 px-3"
