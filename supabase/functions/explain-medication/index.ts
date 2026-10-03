@@ -70,7 +70,7 @@ Deno.serve(async (req: Request) => {
         .gt('expires_at', new Date().toISOString())
         .maybeSingle()
 
-      if (cached) {
+      if (cached && cached.source !== 'fallback') {
         const data: ExplanationData = {
           brand_name: cached.brand_name,
           generic_name: cached.generic_name,
@@ -86,127 +86,116 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Step 2: Call OpenFDA
-    const openFdaBase = Deno.env.get('OPENFDA_API_BASE') ?? 'https://api.fda.gov/drug/label.json'
-    const encodedName = encodeURIComponent(queryKey)
-    const fdaUrl = `${openFdaBase}?search=openfda.brand_name:"${encodedName}"+openfda.generic_name:"${encodedName}"&limit=1`
+    // Step 2: Extract candidate terms (handles compound names, international synonyms, and dosage suffixes)
+    const SYNONYMS: Record<string, string> = {
+      paracetamol: 'acetaminophen',
+      paracetemol: 'acetaminophen',
+      panadol: 'acetaminophen',
+      calpol: 'acetaminophen',
+      tylenol: 'acetaminophen',
+      salbutamol: 'albuterol',
+      ventolin: 'albuterol',
+      frusemide: 'furosemide',
+      lasix: 'furosemide',
+      lignocaine: 'lidocaine',
+      glyceryl_trinitrate: 'nitroglycerin',
+      amoxycillin: 'amoxicillin',
+      amoxil: 'amoxicillin',
+      adrenaline: 'epinephrine',
+      noradrenaline: 'norepinephrine',
+      rifampicin: 'rifampin',
+      hyoscine: 'scopolamine',
+      mepyramine: 'pyrilamine',
+    }
 
-    let fdaData: Record<string, unknown> | null = null
-    let lastError: Error | null = null
-
-    // 1 retry
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const fdaResp = await fetch(fdaUrl, {
-          headers: { 'Accept': 'application/json' },
-          signal: AbortSignal.timeout(10000),
-        })
-
-        if (fdaResp.ok) {
-          fdaData = await fdaResp.json()
-          break
-        } else if (fdaResp.status === 404) {
-          // No results - treat as zero results, don't retry
-          fdaData = { results: [] }
-          break
+    const cleanTerms: string[] = []
+    const addTerm = (term: string, atFront = false) => {
+      const trimmed = term.trim()
+      if (trimmed.length >= 2 && !cleanTerms.some((t) => t.toLowerCase() === trimmed.toLowerCase())) {
+        if (atFront) {
+          cleanTerms.unshift(trimmed)
         } else {
-          throw new Error(`OpenFDA returned ${fdaResp.status}`)
-        }
-      } catch (err) {
-        lastError = err as Error
-        if (attempt === 0) {
-          // Wait 1 second before retry
-          await new Promise((r) => setTimeout(r, 1000))
+          cleanTerms.push(trimmed)
         }
       }
     }
 
-    // If both attempts failed with network/5xx error
-    if (fdaData === null) {
-      console.error('OpenFDA unreachable after retry:', lastError?.message)
-      return new Response(
-        JSON.stringify({ error: { code: 'UPSTREAM_ERROR', message: 'Unable to reach OpenFDA API. Please try again later.' } }),
-        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+    const rawParts = medication_name
+      .split(/[\(\)\/\,\+]/)
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 2)
+
+    for (const part of rawParts) {
+      const syn = SYNONYMS[part.toLowerCase().replace(/[^a-z0-9]/g, '_')] || SYNONYMS[part.toLowerCase()]
+      if (syn) {
+        addTerm(syn, true)
+      }
+
+      const strippedDosage = part.replace(/\b\d+(\.\d+)?\s*(mg|mcg|g|ml|tablets?|capsules?|pills?|mcg\/ml)\b/gi, '').trim()
+      if (strippedDosage && strippedDosage.length >= 2 && strippedDosage !== part) {
+        const synStripped = SYNONYMS[strippedDosage.toLowerCase().replace(/[^a-z0-9]/g, '_')] || SYNONYMS[strippedDosage.toLowerCase()]
+        if (synStripped) {
+          addTerm(synStripped, true)
+        }
+        addTerm(strippedDosage)
+      }
+
+      addTerm(part)
     }
 
-    let results = (fdaData as { results?: unknown[] }).results ?? []
+    if (cleanTerms.length === 0) {
+      cleanTerms.push(medication_name.trim())
+    }
 
-    // If zero results, try resolving international synonym (e.g. Paracetamol -> Acetaminophen) or spelling typos
+    const openFdaBase = Deno.env.get('OPENFDA_API_BASE') ?? 'https://api.fda.gov/drug/label.json'
+    let results: Record<string, unknown>[] = []
+    let fdaData: Record<string, unknown> | null = null
+    let matchedTerm = cleanTerms[0] || medication_name
+
+    // Pass 1: Match against openfda indexed fields (brand, generic, substance) with OR
+    for (const term of cleanTerms) {
+      const enc = encodeURIComponent(term)
+      const query1Url = `${openFdaBase}?search=openfda.brand_name:"${enc}"+OR+openfda.generic_name:"${enc}"+OR+openfda.substance_name:"${enc}"&limit=1`
+      try {
+        const resp1 = await fetch(query1Url, {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(6000),
+        })
+        if (resp1.ok) {
+          const json1 = await resp1.json()
+          if (json1.results && json1.results.length > 0) {
+            results = json1.results
+            fdaData = json1
+            matchedTerm = term
+            break
+          }
+        }
+      } catch {
+        // continue
+      }
+    }
+
+    // Pass 2: If Pass 1 found nothing, try full-text search across all label sections
     if (results.length === 0) {
-      const SYNONYMS: Record<string, string> = {
-        paracetamol: 'acetaminophen',
-        paracetemol: 'acetaminophen',
-        salbutamol: 'albuterol',
-        frusemide: 'furosemide',
-        lignocaine: 'lidocaine',
-        glyceryl_trinitrate: 'nitroglycerin',
-      }
-
-      let synonym = SYNONYMS[queryKey]
-
-      if (!synonym) {
+      for (const term of cleanTerms) {
+        const enc = encodeURIComponent(term)
+        const query2Url = `${openFdaBase}?search="${enc}"&limit=1`
         try {
-          const rxRes = await fetch(`https://rxnav.nlm.nih.gov/REST/rxcui.json?name=${encodeURIComponent(queryKey)}`, {
-            signal: AbortSignal.timeout(2000),
-          })
-          if (rxRes.ok) {
-            const rxData = await rxRes.json()
-            const rxcui = rxData?.idGroup?.rxnormId?.[0]
-            if (rxcui) {
-              const propRes = await fetch(`https://rxnav.nlm.nih.gov/REST/rxcui/${rxcui}/properties.json`, {
-                signal: AbortSignal.timeout(2000),
-              })
-              if (propRes.ok) {
-                const propData = await propRes.json()
-                const officialName = propData?.properties?.name
-                if (officialName && officialName.toLowerCase() !== queryKey) {
-                  synonym = officialName.toLowerCase()
-                }
-              }
-            }
-          }
-        } catch {
-          // ignore timeout
-        }
-      }
-
-      // Check spelling suggestions if still no synonym
-      if (!synonym) {
-        try {
-          const spellRes = await fetch(`https://rxnav.nlm.nih.gov/REST/spellingsuggestions.json?name=${encodeURIComponent(queryKey)}`, {
-            signal: AbortSignal.timeout(2000),
-          })
-          if (spellRes.ok) {
-            const spellData = await spellRes.json()
-            const rawSug = spellData?.suggestionGroup?.suggestionList?.suggestion
-            const suggested = Array.isArray(rawSug) ? rawSug[0] : rawSug
-            if (suggested && suggested.toLowerCase() !== queryKey) {
-              synonym = SYNONYMS[suggested.toLowerCase()] || suggested.toLowerCase()
-            }
-          }
-        } catch {
-          // ignore timeout
-        }
-      }
-
-      if (synonym) {
-        try {
-          const synEncoded = encodeURIComponent(synonym)
-          const synUrl = `${openFdaBase}?search=openfda.brand_name:"${synEncoded}"+openfda.generic_name:"${synEncoded}"&limit=1`
-          const synResp = await fetch(synUrl, {
+          const resp2 = await fetch(query2Url, {
             headers: { 'Accept': 'application/json' },
-            signal: AbortSignal.timeout(5000),
+            signal: AbortSignal.timeout(6000),
           })
-          if (synResp.ok) {
-            const synData = await synResp.json()
-            if ((synData?.results?.length ?? 0) > 0) {
-              results = synData.results
-              fdaData = synData
+          if (resp2.ok) {
+            const json2 = await resp2.json()
+            if (json2.results && json2.results.length > 0) {
+              results = json2.results
+              fdaData = json2
+              matchedTerm = term
+              break
             }
           }
         } catch {
-          // ignore
+          // continue
         }
       }
     }
@@ -219,11 +208,23 @@ Deno.serve(async (req: Request) => {
       const drug = results[0] as Record<string, unknown>
       const openfda = (drug.openfda as Record<string, string[]>) ?? {}
 
-      const brandName = openfda.brand_name?.[0] ?? null
-      const genericName = openfda.generic_name?.[0] ?? null
-      const purpose = (drug.purpose as string[])?.[0] ?? null
-      const warnings = (drug.warnings as string[])?.[0] ?? (drug.warnings_and_cautions as string[])?.[0] ?? null
-      const adverseRaw = (drug.adverse_reactions as string[])?.[0] ?? ''
+      const brandName = openfda.brand_name?.[0] ?? matchedTerm
+      const genericName = openfda.generic_name?.[0] ?? openfda.substance_name?.[0] ?? null
+      const purpose =
+        (drug.purpose as string[])?.[0] ??
+        (drug.indications_and_usage as string[])?.[0] ??
+        (drug.description as string[])?.[0] ??
+        null
+      const warnings =
+        (drug.warnings as string[])?.[0] ??
+        (drug.warnings_and_cautions as string[])?.[0] ??
+        (drug.boxed_warning as string[])?.[0] ??
+        (drug.precautions as string[])?.[0] ??
+        null
+      const adverseRaw =
+        (drug.adverse_reactions as string[])?.[0] ??
+        (drug.side_effects as string[])?.[0] ??
+        ''
       const sideEffects = truncateToThreeSentences(adverseRaw)
 
       explanation = {
@@ -245,13 +246,13 @@ Deno.serve(async (req: Request) => {
         brand_name: null,
         generic_name: null,
         purpose: null,
-        warnings: 'No verified data found for this medication name. Consult a pharmacist.',
+        warnings: 'No verified FDA label found for this medication name. Consult your pharmacist or physician for guidance.',
         side_effects: [],
         source: 'fallback',
         raw_response: null,
       }
       source = 'fallback'
-      expiresAt = new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString()
+      expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString()
     }
 
     // Upsert into cache
