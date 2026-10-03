@@ -345,12 +345,12 @@ export default function DashboardClient({
   }
 
   const filtered = optimisticLogs.filter((log) => {
-    if (filter === 'pending') return log.status === 'pending'
+    if (filter === 'pending') return log.status === 'pending' || log.status === 'missed'
     if (filter === 'taken') return log.status === 'taken'
     return true
   })
 
-  const pendingCount = optimisticLogs.filter((l) => l.status === 'pending').length
+  const pendingCount = optimisticLogs.filter((l) => l.status === 'pending' || l.status === 'missed').length
   const takenCount = optimisticLogs.filter((l) => l.status === 'taken').length
 
   const today = new Date().toLocaleDateString('en-US', {
@@ -591,7 +591,7 @@ export default function DashboardClient({
                   </div>
 
                   {/* Bottom / Right Actions row on mobile, inline on desktop */}
-                  {log.status === 'pending' && (
+                  {(log.status === 'pending' || log.status === 'missed') && (
                     <div className="flex items-center gap-2 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-gray-100 flex-shrink-0">
                       <Button
                         size="sm"

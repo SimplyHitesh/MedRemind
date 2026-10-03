@@ -107,11 +107,8 @@ Deno.serve(async (req: Request) => {
     }
 
     // 10 minutes ago for nagging, 2 hours ago cutoff for missed
-    const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000).toISOString()
-    const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString()
-
     // ================================================================
-    // DISPATCH STEP: Send notifications for pending unnotified or nagged logs
+    // DISPATCH STEP: Send notifications for pending unnotified or snoozed logs
     // ================================================================
     const { data: pendingLogs, error: dueError } = await supabase
       .from('medication_logs')
@@ -125,9 +122,8 @@ Deno.serve(async (req: Request) => {
         medications!inner(name, dose_amount, dose_unit, is_active, tablets_remaining, tablets_per_dose, refill_alert_days),
         profiles!inner(push_subscription, timezone)
       `)
-      .eq('status', 'pending')
+      .in('status', ['pending', 'missed'])
       .lte('scheduled_for', nowIso)
-      .gt('scheduled_for', twoHoursAgo)
 
     if (dueError) {
       console.error('Failed to fetch due logs:', dueError)
@@ -139,6 +135,7 @@ Deno.serve(async (req: Request) => {
     const dueLogs = (pendingLogs ?? []).filter((log) => {
       const notifiedTime = log.notified_at ? new Date(log.notified_at).getTime() : null
       const snoozedTime = log.snoozed_until ? new Date(log.snoozed_until).getTime() : null
+      const scheduledTime = new Date(log.scheduled_for).getTime()
 
       // If snoozed into the future, do NOT notify yet
       if (snoozedTime && snoozedTime > nowTime) {
@@ -157,9 +154,12 @@ Deno.serve(async (req: Request) => {
         return true
       }
 
-      // Case 3: Nagging reminder (already notified, not snoozed, and 10 mins have elapsed)
-      if (!snoozedTime && nowTime - notifiedTime >= tenMins) {
-        return true
+      // Case 3: Gentle reminder (notified once at scheduled time, not snoozed, 10-35 mins elapsed)
+      const timeSinceScheduled = nowTime - scheduledTime
+      if (!snoozedTime && timeSinceScheduled >= tenMins && timeSinceScheduled <= 35 * 60 * 1000) {
+        if (notifiedTime < scheduledTime + 5 * 60 * 1000) {
+          return true
+        }
       }
 
       return false
@@ -266,19 +266,12 @@ Deno.serve(async (req: Request) => {
         status: notificationStatus,
       })
 
-      // Mark log as notified and clear snoozed_until since snooze reminder was delivered
+      // Mark log as notified, clear snoozed_until, and keep status as 'pending'
       await supabase
         .from('medication_logs')
-        .update({ notified_at: nowIso, snoozed_until: null })
+        .update({ notified_at: nowIso, snoozed_until: null, status: 'pending' })
         .eq('id', log.id)
     }
-
-    // Mark overdue logs as missed
-    await supabase
-      .from('medication_logs')
-      .update({ status: 'missed' })
-      .eq('status', 'pending')
-      .lt('scheduled_for', twoHoursAgo)
 
     return new Response(
       JSON.stringify({
