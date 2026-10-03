@@ -22,19 +22,7 @@ export async function POST(req: Request) {
 
     const admin = createAdminClient()
 
-    // 1. Check if user already exists
-    const { data: userList } = await admin.auth.admin.listUsers()
-    const existing = userList?.users?.find(
-      (u) => u.email?.toLowerCase() === email.trim().toLowerCase()
-    )
-    if (existing) {
-      return NextResponse.json(
-        { error: 'An account with this email already exists. Please sign in.' },
-        { status: 400 }
-      )
-    }
-
-    // 2. Create user with email_confirm: true (bypasses Supabase free tier email rate limits)
+    // Create user with email_confirm: true (bypasses Supabase free tier email rate limits)
     const { data: newUser, error: createError } = await admin.auth.admin.createUser({
       email: email.trim().toLowerCase(),
       password,
@@ -43,8 +31,10 @@ export async function POST(req: Request) {
     })
 
     if (createError || !newUser?.user) {
+      const msg = createError?.message || 'Failed to create account'
+      const isDuplicate = msg.toLowerCase().includes('already') || msg.toLowerCase().includes('exists')
       return NextResponse.json(
-        { error: createError?.message || 'Failed to create account' },
+        { error: isDuplicate ? 'An account with this email already exists. Please sign in.' : msg },
         { status: 400 }
       )
     }

@@ -63,6 +63,10 @@ export default function LoginPage() {
                 id="email"
                 type="email"
                 placeholder="you@example.com"
+                autoComplete="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -75,6 +79,7 @@ export default function LoginPage() {
                 id="password"
                 type="password"
                 placeholder="••••••••"
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required

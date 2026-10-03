@@ -22,23 +22,45 @@ export default function SignupPage() {
     setError(null)
     setLoading(true)
 
+    const cleanEmail = email.trim().toLowerCase()
+    const supabase = createClient()
+
     try {
-      const res = await fetch('/api/auth/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, fullName }),
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password,
+        options: {
+          data: {
+            full_name: fullName.trim() || 'User',
+          },
+        },
       })
 
-      const data = await res.json()
-
-      if (!res.ok || !data.success) {
-        setError(data.error || 'Failed to create account')
+      if (signUpError) {
+        if (signUpError.message.toLowerCase().includes('already registered')) {
+          setError('An account with this email already exists. Please sign in instead.')
+        } else {
+          setError(signUpError.message)
+        }
         setLoading(false)
         return
       }
 
+      // If session is not immediately available, sign in directly
+      if (!data.session) {
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password,
+        })
+        if (signInError) {
+          setError(signInError.message)
+          setLoading(false)
+          return
+        }
+      }
+
       // Hard redirect ensures session cookies are flushed properly on mobile
-      window.location.href = data.redirect || '/dashboard'
+      window.location.href = '/dashboard'
     } catch {
       setError('An unexpected error occurred. Please try again.')
       setLoading(false)
@@ -70,6 +92,8 @@ export default function SignupPage() {
                 id="fullName"
                 type="text"
                 placeholder="Jane Smith"
+                autoComplete="name"
+                autoCapitalize="words"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 required
@@ -82,6 +106,10 @@ export default function SignupPage() {
                 id="email"
                 type="email"
                 placeholder="you@example.com"
+                autoComplete="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -94,6 +122,7 @@ export default function SignupPage() {
                 id="password"
                 type="password"
                 placeholder="••••••••"
+                autoComplete="new-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 minLength={6}
