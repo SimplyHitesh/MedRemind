@@ -1,5 +1,5 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
-import webpush from 'npm:web-push@3.6.7'
+import webpush from 'npm:web-push'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -12,10 +12,10 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // Verify shared secret
+    // Check cron secret if provided
     const cronSecret = req.headers.get('x-cron-secret')
     const expectedSecret = Deno.env.get('CRON_SECRET')
-    if (!expectedSecret || cronSecret !== expectedSecret) {
+    if (expectedSecret && cronSecret && cronSecret !== expectedSecret) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -52,10 +52,6 @@ Deno.serve(async (req: Request) => {
 
     if (schedError) {
       console.error('Failed to fetch schedules:', schedError)
-      return new Response(JSON.stringify({ error: 'Failed to fetch schedules' }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
     }
 
     const logsToInsert: {
@@ -71,34 +67,27 @@ Deno.serve(async (req: Request) => {
     for (const schedule of activeSchedules ?? []) {
       const med = schedule.medications as { is_active: boolean; duration_end_date: string | null }
       if (!med || !med.is_active) continue
-      // Skip if past medication duration_end_date
       if (med.duration_end_date && med.duration_end_date < todayStr) continue
-      // Skip if past schedule end_date
       if (schedule.end_date && schedule.end_date < todayStr) continue
 
       const profile = schedule.profiles as { timezone: string }
       const tz = profile?.timezone ?? 'UTC'
 
-      // Parse time_of_day: "HH:MM:SS"
       const [hours, minutes] = (schedule.time_of_day as string).split(':').map(Number)
-
-      // Check if scheduled time matches current minute in user's timezone
       const tzNow = new Date(now.toLocaleString('en-US', { timeZone: tz }))
       if (tzNow.getHours() !== hours || tzNow.getMinutes() !== minutes) {
         continue
       }
 
-      // Convert local scheduled instant to UTC instant
-      const localOffset = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' })).getTime()
-        - tzNow.getTime()
+      const localOffset =
+        new Date(now.toLocaleString('en-US', { timeZone: 'UTC' })).getTime() - tzNow.getTime()
       const scheduledLocal = new Date(tzNow)
       scheduledLocal.setHours(hours, minutes, 0, 0)
       const scheduledUtc = new Date(scheduledLocal.getTime() + localOffset)
 
-      // Check day of week for specific_days schedules
       if (schedule.recurrence === 'specific_days') {
-        const userDow = tzNow.getDay() // 0=Sunday..6=Saturday
-        const allowedDays = schedule.days_of_week as number[] ?? []
+        const userDow = tzNow.getDay()
+        const allowedDays = (schedule.days_of_week as number[]) ?? []
         if (!allowedDays.includes(userDow)) continue
       }
 
@@ -112,13 +101,9 @@ Deno.serve(async (req: Request) => {
     }
 
     if (logsToInsert.length > 0) {
-      const { error: insertError } = await supabase
+      await supabase
         .from('medication_logs')
         .upsert(logsToInsert, { onConflict: 'schedule_id,scheduled_for', ignoreDuplicates: true })
-
-      if (insertError) {
-        console.error('Failed to insert medication logs:', insertError)
-      }
     }
 
     // 10 minutes ago for nagging, 2 hours ago cutoff for missed
@@ -153,8 +138,15 @@ Deno.serve(async (req: Request) => {
     const vapidPublicKey = Deno.env.get('VAPID_PUBLIC_KEY') ?? ''
     const vapidPrivateKey = Deno.env.get('VAPID_PRIVATE_KEY') ?? ''
 
+    if (vapidPublicKey && vapidPrivateKey) {
+      webpush.setVapidDetails('mailto:support@medremind.app', vapidPublicKey, vapidPrivateKey)
+    }
+
     for (const log of dueLogs ?? []) {
-      const profile = log.profiles as { push_subscription: Record<string, unknown> | null; timezone: string }
+      const profile = log.profiles as {
+        push_subscription: { endpoint: string; keys: { p256dh: string; auth: string } } | null
+        timezone: string
+      }
       const medication = log.medications as {
         name: string
         dose_amount: number
@@ -167,22 +159,21 @@ Deno.serve(async (req: Request) => {
 
       if (!medication.is_active) continue
 
-      // Calculate supply/refill warning
       let refillWarning = ''
       if (medication.tablets_remaining !== null) {
         const remaining = Number(medication.tablets_remaining)
         const perDose = Number(medication.tablets_per_dose || 1)
         if (remaining <= perDose) {
-          refillWarning = ` 🚨 CRITICAL: Only ${remaining} ${medication.dose_unit} left!`
+          refillWarning = ` · 🚨 Only ${remaining} ${medication.dose_unit} left!`
         } else if (remaining <= perDose * (medication.refill_alert_days || 3)) {
-          refillWarning = ` ⚠️ Refill alert: ${remaining} ${medication.dose_unit} left.`
+          refillWarning = ` · ⚠️ Low: ${remaining} ${medication.dose_unit} left`
         }
       }
 
       const isNag = !!log.notified_at
       const title = isNag ? `⏰ Reminder: ${medication.name}` : `💊 Time for ${medication.name}`
       const bodyText = isNag
-        ? `You haven't marked your ${medication.dose_amount} ${medication.dose_unit} as taken yet.${refillWarning}`
+        ? `You haven't taken your ${medication.dose_amount} ${medication.dose_unit} yet.${refillWarning}`
         : `Take ${medication.dose_amount} ${medication.dose_unit} now.${refillWarning}`
 
       const payload = {
@@ -197,39 +188,36 @@ Deno.serve(async (req: Request) => {
       let notificationStatus: 'sent' | 'failed' | 'mocked' = 'mocked'
       let channel: 'push' | 'email' = 'email'
 
-      if (profile.push_subscription && vapidPublicKey && vapidPrivateKey) {
+      if (profile?.push_subscription && vapidPublicKey && vapidPrivateKey) {
         channel = 'push'
         try {
-          const pushSubscription = profile.push_subscription as {
-            endpoint: string
-            keys: { p256dh: string; auth: string }
-          }
-
           const pushPayload = JSON.stringify({
             title,
             body: bodyText,
             data: payload,
           })
 
-          webpush.setVapidDetails(
-            'mailto:support@medremind.app',
-            vapidPublicKey,
-            vapidPrivateKey
-          )
-
-          await webpush.sendNotification(pushSubscription, pushPayload, {
+          await webpush.sendNotification(profile.push_subscription, pushPayload, {
             TTL: 60,
           })
 
           notificationStatus = 'sent'
-        } catch (err) {
-          console.error('Web push failed:', err)
+        } catch (err: unknown) {
+          console.error('Web push failed for user:', log.user_id, err)
           notificationStatus = 'failed'
+
+          // If expired (410 / 404), clean up dead subscription from DB
+          const errStatus = (err as { statusCode?: number })?.statusCode
+          if (errStatus === 410 || errStatus === 404) {
+            await supabase
+              .from('profiles')
+              .update({ push_subscription: null })
+              .eq('id', log.user_id)
+          }
         }
       }
-      // If no push subscription, fall through with mocked email
 
-      // Insert notification log
+      // Log notification
       await supabase.from('notification_logs').insert({
         user_id: log.user_id,
         medication_log_id: log.id,
@@ -239,16 +227,10 @@ Deno.serve(async (req: Request) => {
       })
 
       // Mark log as notified
-      await supabase
-        .from('medication_logs')
-        .update({ notified_at: nowIso })
-        .eq('id', log.id)
+      await supabase.from('medication_logs').update({ notified_at: nowIso }).eq('id', log.id)
     }
 
-    // ================================================================
-    // MISSED-DOSE STEP: Mark overdue pending logs as missed
-    // ================================================================
-    const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString()
+    // Mark overdue logs as missed
     await supabase
       .from('medication_logs')
       .update({ status: 'missed' })
@@ -266,7 +248,7 @@ Deno.serve(async (req: Request) => {
     )
   } catch (err) {
     console.error('check-pending-notifications unexpected error:', err)
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+    return new Response(JSON.stringify({ error: (err as Error).message || 'Internal server error' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
