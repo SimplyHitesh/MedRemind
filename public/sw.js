@@ -17,7 +17,8 @@ self.addEventListener('push', (event) => {
     data = { title: 'MedRemind', body: event.data?.text() ?? 'Time for your medication' }
   }
 
-  const title = data.title ?? '💊 Time for your Medication'
+  const isSnooze = data.data?.is_snooze
+  const title = data.title ?? (isSnooze ? '⏰ Snooze Reminder' : '💊 Time for your Medication')
   const options = {
     body: data.body ?? 'Time to take your scheduled dose.',
     icon: '/favicon.ico',
@@ -28,7 +29,9 @@ self.addEventListener('push', (event) => {
       { action: 'snooze', title: 'Snooze' },
     ],
     requireInteraction: true,
-    tag: data.data?.medication_log_id ?? 'med-reminder',
+    renotify: true,
+    tag: `${data.data?.medication_log_id ?? 'med'}-${isSnooze ? 'snooze-' + Date.now() : 'reminder'}`,
+    vibrate: [250, 100, 250],
   }
 
   event.waitUntil(self.registration.showNotification(title, options))

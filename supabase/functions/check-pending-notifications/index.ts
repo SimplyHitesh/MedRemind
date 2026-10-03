@@ -237,6 +237,7 @@ Deno.serve(async (req: Request) => {
           })
 
           await webpush.sendNotification(profile.push_subscription, pushPayload, {
+            urgency: 'high',
             TTL: 60,
           })
 
