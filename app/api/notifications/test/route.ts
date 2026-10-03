@@ -28,25 +28,8 @@ export async function POST() {
       )
     }
 
-    // Fetch user's active medication details for the notification
-    const { data: userMed } = await admin
-      .from('medications')
-      .select('name, dose_amount, dose_unit, form, tablets_remaining, instructions')
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .limit(1)
-      .maybeSingle()
-
-    const medName = userMed?.name || 'Ibuprofen'
-    const doseDetails = userMed
-      ? `${userMed.dose_amount} ${userMed.dose_unit} · ${userMed.form}`
-      : '200 mg · tablet'
-    const stockDetails =
-      userMed?.tablets_remaining != null ? ` · 📦 ${userMed.tablets_remaining} remaining` : ''
-    const instructDetails = userMed?.instructions ? ` (${userMed.instructions})` : ''
-
-    const title = `💊 Time for ${medName}`
-    const body = `Take ${doseDetails}${stockDetails}${instructDetails}`
+    const title = '🧪 Test Notification'
+    const body = 'This is a test notification from MedRemind. Your reminder alerts are working properly!'
 
     try {
       await sendWebPushNotification(profile.push_subscription, {
@@ -54,7 +37,6 @@ export async function POST() {
         body,
         data: {
           test: true,
-          medication_name: medName,
           timestamp: new Date().toISOString(),
         },
       })
